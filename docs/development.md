@@ -55,7 +55,7 @@ The Go process reads the shell environment. `.env` configures Compose but is not
 | `DB_CONNECT_TIMEOUT` | `3s` | Connection attempt timeout |
 | `DB_PING_TIMEOUT` | `3s` | Readiness check timeout |
 
-The API starts even when the database is offline; `/readyz` then returns 503. It closes the listener gracefully on SIGINT or SIGTERM and waits up to 10 seconds for active requests. Run `make fmt`, `go vet ./...`, and `make test` after Go changes.
+Run `make run` in one terminal and send `curl` requests from another while it remains running. Ctrl+C ends the process, so later requests will get connection refused; Make may report `Error 1` because the foreground command was interrupted. The API starts even when the database is offline; `/readyz` then returns 503. It closes the listener gracefully on SIGINT or SIGTERM and waits up to 10 seconds for active requests. Run `make fmt`, `go vet ./...`, and `make test` after Go changes.
 
 ## Migrations
 

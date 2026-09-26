@@ -22,16 +22,21 @@ SELECT extversion FROM pg_extension WHERE extname = 'vector';
 
 ## API
 
-With PostgreSQL running, export `DATABASE_URL` and start the API:
+Start PostgreSQL with `make up`. In **terminal 1**, export a URL whose password matches `.env`, then leave the API running:
 
 ```bash
 export DATABASE_URL='postgres://scigraph:<your-password>@127.0.0.1:5432/scigraph?sslmode=disable'
 make run
+```
+
+While terminal 1 shows `HTTP server listening`, use **terminal 2**:
+
+```bash
 curl --max-time 5 http://127.0.0.1:8080/healthz
 curl --max-time 5 http://127.0.0.1:8080/readyz
 ```
 
-`GET /healthz` returns 200 while the process is running. `GET /readyz` returns 200 when PostgreSQL responds to a ping and 503 otherwise. `make fmt` and `make test` format and test the Go packages.
+`make run` stays in the foreground. Pressing Ctrl+C stops the API, after which `curl` cannot connect; Make may print `Error 1` for the interrupted command. `GET /healthz` returns 200 while the process is running. `GET /readyz` returns 200 when PostgreSQL responds to a ping and 503 otherwise. `make fmt` and `make test` format and test the Go packages.
 
 ## Database schema
 
