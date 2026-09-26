@@ -1,0 +1,23 @@
+.env
+.env.*
+!.env.example
+*.log
+
+# Go
+/bin/
+/coverage.out
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local experiment output
+/experiments/results/
+
+# Editors
+.idea/
+.vscode/
+*~
