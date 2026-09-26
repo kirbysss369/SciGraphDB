@@ -79,6 +79,22 @@ func TestSearchCursorPages(t *testing.T) {
 	}
 }
 
+func TestSearchWorksYearFilters(t *testing.T) {
+	client, closeServer := fixtureClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("filter"); got != "from_publication_date:2020-01-01,to_publication_date:2022-12-31" {
+			t.Errorf("filter=%q", got)
+		}
+		fmt.Fprint(w, `{"meta":{"next_cursor":null},"results":[]}`)
+	}, "", time.Second)
+	defer closeServer()
+	if _, err := client.SearchWorks(context.Background(), Query{Search: "science", FromYear: 2020, ToYear: 2022, Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SearchWorks(context.Background(), Query{Search: "science", FromYear: 2023, ToYear: 2022, Limit: 10}); err == nil {
+		t.Fatal("reversed year range accepted")
+	}
+}
+
 func TestRetryStatuses(t *testing.T) {
 	for _, tt := range []struct {
 		name      string

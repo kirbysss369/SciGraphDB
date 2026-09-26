@@ -71,7 +71,7 @@ make migrate
 make migrate-status
 ```
 
-`make migrate` applies pending SQL files in a transaction. `make migrate-down` rolls back one version and deletes the tables and their data; the first rollback also removes the `vector` extension. PostgreSQL refuses to drop the extension if another object depends on it. The version ledger (`schema_migrations`) remains after rollback. Applied migration checksums are verified before subsequent changes, so edit an applied SQL file only by creating a new migration instead.
+`make migrate` applies pending SQL files in a transaction. `make migrate-down` rolls back one version: version 002 drops the unresolved citation queue, while version 001 drops the core tables and their data and removes the `vector` extension. PostgreSQL refuses to drop the extension if another object depends on it. The version ledger (`schema_migrations`) remains after rollback. Applied migration checksums are verified before subsequent changes, so edit an applied SQL file only by creating a new migration instead.
 
 For a migration cycle on a **disposable database**:
 
@@ -109,3 +109,35 @@ go test ./...
 ```
 
 The public probe above is optional. OpenAlex documents [authentication and rate limits](https://help.openalex.org/api/authentication/), [cursor paging](https://help.openalex.org/api/paging/), [work attributes](https://help.openalex.org/data/works/attributes/), and [error handling](https://help.openalex.org/api/errors/). Check these before substantially changing the client because API policies can change.
+
+## Importing works
+
+Apply both migrations (`make migrate`) and export `DATABASE_URL`. Run a small import first:
+
+```bash
+go run ./cmd/importer --search 'graph databases' --from-year 2020 --to-year 2024 --limit 10
+```
+
+The year bounds are inclusive OpenAlex publication-date filters and are applied before `--limit`. Without a key, the CLI permits at most 10 works. For a 100-work sample, export `OPENALEX_API_KEY` securely and repeat with `--limit 100`; inspect the rows and daily API budget before trying `--limit 1000`. The client fetches at most 10,000 works per invocation. No automated test calls the public API, and a keyless probe/import should stay small.
+
+Each batch of up to 100 works commits atomically. `papers` uses `ON CONFLICT (openalex_id) DO UPDATE` to replace DOI, title, abstract, year, citation count, metadata and `updated_at` while preserving `id` and `created_at`. `topics` updates names on `openalex_id` conflict. The import replaces each work's outgoing `paper_topics` and citations, then inserts topic pairs with `ON CONFLICT (paper_id, topic_id) DO UPDATE` for scores and queues unresolved references with `ON CONFLICT (citing_paper_id, cited_openalex_id) DO NOTHING`. Once both papers exist, a citation is inserted in the citing → cited direction with `ON CONFLICT (citing_paper_id, cited_paper_id) DO NOTHING`, and its queue entry is removed. Re-importing does not duplicate rows; removing a reference from OpenAlex removes that outgoing edge on the next import of its citing paper. Incoming edges from other works are retained. `metadata` stores only source and reference count, not raw API responses.
+
+The summary reports `fetched` API works, `inserted` new papers, `updated` existing papers processed (including unchanged values), `skipped` malformed/duplicate works, `failed` works in a failed database batch, and `citations_linked` edges inserted during this invocation. A failed batch rolls back; earlier committed batches remain. Progress is logged once per committed batch. SIGINT/SIGTERM cancels requests and database work. Do not roll back migration 002 to retry an import: that drops unresolved references.
+
+Check a 10-work sample, then a 100-work sample in `make db-shell`:
+
+```sql
+SELECT count(*) FROM papers;
+SELECT count(*) FROM topics;
+SELECT count(*) FROM paper_topics;
+SELECT count(*) FROM citations;
+SELECT count(*) FROM pending_citations;
+SELECT openalex_id, count(*) FROM papers GROUP BY openalex_id HAVING count(*) > 1;
+SELECT id, title, publication_year FROM papers ORDER BY cited_by_count DESC LIMIT 10;
+```
+
+Repeat the same import and compare table counts. Citation count may be low in a small sample because only references to already imported papers become edges. To run the deterministic fixture integration test, use an **empty disposable database** with `DATABASE_URL_TEST`:
+
+```bash
+go test -tags integration ./internal/importer -v
+```

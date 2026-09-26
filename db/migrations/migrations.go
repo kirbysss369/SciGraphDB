@@ -28,6 +28,7 @@ type State struct {
 
 var ordered = []Migration{
 	{1, "initial_schema", "001_initial_schema.up.sql", "001_initial_schema.down.sql"},
+	{2, "pending_citations", "002_pending_citations.up.sql", "002_pending_citations.down.sql"},
 }
 
 const versionTable = `CREATE TABLE IF NOT EXISTS public.schema_migrations (

@@ -38,19 +38,21 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 1 || before[0].Applied {
+	if len(before) != 2 || before[0].Applied || before[1].Applied {
 		t.Fatal("integration test requires a database without applied migrations")
 	}
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
-		if _, err := Down(cleanupCtx, conn); err != nil {
-			t.Errorf("cleanup migration: %v", err)
+		for range 2 {
+			if _, err := Down(cleanupCtx, conn); err != nil {
+				t.Errorf("cleanup migration: %v", err)
+			}
 		}
 	}()
 
 	changed, err := Up(ctx, conn)
-	if err != nil || len(changed) != 1 {
+	if err != nil || len(changed) != 2 {
 		t.Fatalf("first up: changed=%d err=%v", len(changed), err)
 	}
 	if changed, err := Up(ctx, conn); err != nil || len(changed) != 0 {
@@ -62,10 +64,17 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	if _, err := Down(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
+	var pending bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.pending_citations') IS NOT NULL`).Scan(&pending); err != nil || pending {
+		t.Fatalf("pending citations not rolled back: exists=%v err=%v", pending, err)
+	}
+	if _, err := Down(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
 	verifySchema(t, ctx, conn, false)
 
 	changed, err = Up(ctx, conn)
-	if err != nil || len(changed) != 1 {
+	if err != nil || len(changed) != 2 {
 		t.Fatalf("second up: changed=%d err=%v", len(changed), err)
 	}
 	verifySchema(t, ctx, conn, true)
@@ -73,7 +82,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 
 func verifySchema(t *testing.T, ctx context.Context, conn *pgx.Conn, expected bool) {
 	t.Helper()
-	for _, name := range []string{"papers", "topics", "paper_topics", "citations"} {
+	for _, name := range []string{"papers", "topics", "paper_topics", "citations", "pending_citations"} {
 		var exists bool
 		if err := conn.QueryRow(ctx, `SELECT to_regclass('public.' || $1) IS NOT NULL`, name).Scan(&exists); err != nil {
 			t.Fatal(err)
@@ -118,6 +127,7 @@ func verifyConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 		{"invalid score", "23514", `INSERT INTO public.paper_topics (paper_id, topic_id, score) VALUES ($1, $2, 1.5)`, []any{first, topic}},
 		{"self citation", "23514", `INSERT INTO public.citations (citing_paper_id, cited_paper_id) VALUES ($1, $1)`, []any{first}},
 		{"missing citation FK", "23503", `INSERT INTO public.citations (citing_paper_id, cited_paper_id) VALUES ($1, -1)`, []any{first}},
+		{"missing pending FK", "23503", `INSERT INTO public.pending_citations (citing_paper_id, cited_openalex_id) VALUES (-1, 'W3')`, nil},
 	}
 	for _, check := range checks {
 		t.Run(check.name, func(t *testing.T) {
@@ -132,6 +142,9 @@ func verifyConstraints(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 		t.Fatal(err)
 	}
 	if _, err := conn.Exec(ctx, `INSERT INTO public.citations (citing_paper_id, cited_paper_id) VALUES ($1, $2)`, first, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx, `INSERT INTO public.pending_citations (citing_paper_id, cited_openalex_id) VALUES ($1, 'W3')`, first); err != nil {
 		t.Fatal(err)
 	}
 }
