@@ -1,4 +1,4 @@
-.PHONY: doctor up down logs ps db-shell db-reset
+.PHONY: doctor up down logs ps db-shell db-reset fmt test run
 
 COMPOSE := ./scripts/compose.sh
 
@@ -29,3 +29,12 @@ db-reset:
 	else \
 		printf 'Cancelled.\n'; \
 	fi
+
+fmt:
+	@go fmt ./...
+
+test:
+	@go test ./...
+
+run:
+	@go run ./cmd/api
