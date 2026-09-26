@@ -41,3 +41,7 @@ curl --max-time 5 http://127.0.0.1:8080/readyz
 ## Database schema
 
 With `DATABASE_URL` exported and PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its tables and data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). OpenAlex importing and vector columns are not implemented yet.
+
+## OpenAlex probe
+
+The read-only works client can query OpenAlex without a database. For a small keyless check, run `go run ./cmd/openalex-probe --search 'graph databases' --limit 3`. Export `OPENALEX_API_KEY` for larger probes. The client reads `OPENALEX_BASE_URL` and `OPENALEX_TIMEOUT` from the shell; `.env` is not loaded automatically. See [OpenAlex client setup](docs/development.md#openalex-client) for configuration, rate limits, and test commands. The probe prints only work IDs, years, and titles; it does not import works.

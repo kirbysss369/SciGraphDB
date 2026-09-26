@@ -81,3 +81,31 @@ go test -tags integration ./db/migrations
 ```
 
 Create `scigraph_test` separately before running this command and use credentials that can create the extension. The integration test applies the schema, checks constraints, rolls it back, applies it again, and cleans up. Never point `DATABASE_URL_TEST` at a database with useful data.
+
+## OpenAlex client
+
+`cmd/openalex-probe` queries works without using PostgreSQL. Set these shell variables when needed (the Go program does not load `.env`):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENALEX_BASE_URL` | `https://api.openalex.org` | API origin, or a local test server |
+| `OPENALEX_API_KEY` | unset | Optional Bearer token; required by the probe for more than 10 works |
+| `OPENALEX_TIMEOUT` | `10s` | Per-attempt request and response timeout |
+
+For a small manual network check, run:
+
+```bash
+go run ./cmd/openalex-probe --search 'graph databases' --limit 3
+```
+
+For a larger probe, export `OPENALEX_API_KEY` from a private shell or secret store. Keep it out of command arguments, logs, and commits. Requests use `select` for the fields the client reads, at most 100 results per page, and `meta.next_cursor` for pagination. Transient HTTP 429 and 5xx responses get at most three attempts with short backoff. A zero remaining daily budget or a `Retry-After` beyond the five-second retry window fails promptly so a probe cannot wait all day. The maximum client search limit is 10,000 works; use an OpenAlex snapshot for bulk exports. API responses and abstracts are kept in memory only.
+
+Tests use local `httptest.Server` fixtures and never need a public API call:
+
+```bash
+go fmt ./...
+go vet ./...
+go test ./...
+```
+
+The public probe above is optional. OpenAlex documents [authentication and rate limits](https://help.openalex.org/api/authentication/), [cursor paging](https://help.openalex.org/api/paging/), [work attributes](https://help.openalex.org/data/works/attributes/), and [error handling](https://help.openalex.org/api/errors/). Check these before substantially changing the client because API policies can change.
