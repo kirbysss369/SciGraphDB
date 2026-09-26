@@ -1,4 +1,4 @@
-.PHONY: doctor up down logs ps db-shell db-reset fmt test run
+.PHONY: doctor up down logs ps db-shell db-reset fmt test run migrate migrate-down migrate-status
 
 COMPOSE := ./scripts/compose.sh
 
@@ -38,3 +38,12 @@ test:
 
 run:
 	@go run ./cmd/api
+
+migrate:
+	@go run ./cmd/migrate up
+
+migrate-down:
+	@go run ./cmd/migrate down
+
+migrate-status:
+	@go run ./cmd/migrate status

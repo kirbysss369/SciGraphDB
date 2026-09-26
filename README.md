@@ -31,4 +31,8 @@ curl --max-time 5 http://127.0.0.1:8080/healthz
 curl --max-time 5 http://127.0.0.1:8080/readyz
 ```
 
-`GET /healthz` returns 200 while the process is running. `GET /readyz` returns 200 when PostgreSQL responds to a ping and 503 otherwise. `make fmt` and `make test` format and test the Go packages. No papers, migrations, or OpenAlex code has been added yet.
+`GET /healthz` returns 200 while the process is running. `GET /readyz` returns 200 when PostgreSQL responds to a ping and 503 otherwise. `make fmt` and `make test` format and test the Go packages.
+
+## Database schema
+
+With `DATABASE_URL` exported and PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its tables and data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). OpenAlex importing and vector columns are not implemented yet.

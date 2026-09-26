@@ -28,3 +28,37 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test ./...
+
+  migration-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_USER: scigraph
+          POSTGRES_PASSWORD: integration-only
+          POSTGRES_DB: scigraph_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scigraph -d scigraph_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://scigraph:integration-only@127.0.0.1:5432/scigraph_test?sslmode=disable
+      DATABASE_URL_TEST: postgres://scigraph:integration-only@127.0.0.1:5432/scigraph_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Database constraints and migration cycle
+        run: go test -tags integration ./db/migrations -v
+      - name: CLI up down up
+        run: |
+          go run ./cmd/migrate status
+          go run ./cmd/migrate up
+          go run ./cmd/migrate status
+          go run ./cmd/migrate down
+          go run ./cmd/migrate up

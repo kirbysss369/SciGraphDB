@@ -56,3 +56,24 @@ The Go process reads the shell environment. `.env` configures Compose but is not
 | `DB_PING_TIMEOUT` | `3s` | Readiness check timeout |
 
 The API starts even when the database is offline; `/readyz` then returns 503. It closes the listener gracefully on SIGINT or SIGTERM and waits up to 10 seconds for active requests. Run `make fmt`, `go vet ./...`, and `make test` after Go changes.
+
+## Migrations
+
+Export `DATABASE_URL` as for the API and run:
+
+```bash
+make migrate-status
+make migrate
+make migrate-status
+```
+
+`make migrate` applies pending SQL files in a transaction. `make migrate-down` rolls back one version and deletes the tables and their data; the first rollback also removes the `vector` extension. PostgreSQL refuses to drop the extension if another object depends on it. The version ledger (`schema_migrations`) remains after rollback. Applied migration checksums are verified before subsequent changes, so edit an applied SQL file only by creating a new migration instead.
+
+For a migration cycle on a **disposable database**:
+
+```bash
+export DATABASE_URL_TEST='postgres://scigraph:<your-password>@127.0.0.1:5432/scigraph_test?sslmode=disable'
+go test -tags integration ./db/migrations
+```
+
+Create `scigraph_test` separately before running this command and use credentials that can create the extension. The integration test applies the schema, checks constraints, rolls it back, applies it again, and cleans up. Never point `DATABASE_URL_TEST` at a database with useful data.
