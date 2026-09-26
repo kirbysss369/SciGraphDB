@@ -57,6 +57,10 @@ The Go process reads the shell environment. `.env` configures Compose but is not
 
 Run `make run` in one terminal and send `curl` requests from another while it remains running. Ctrl+C ends the process, so later requests will get connection refused; Make may report `Error 1` because the foreground command was interrupted. The API starts even when the database is offline; `/readyz` then returns 503. It closes the listener gracefully on SIGINT or SIGTERM and waits up to 10 seconds for active requests. Run `make fmt`, `go vet ./...`, and `make test` after Go changes.
 
+If `/healthz` returns 200 but `/readyz` returns 503, run `make ps` and `make migrate-status` from the shell where `DATABASE_URL` is exported. A `password authentication failed for user "scigraph"` error means that the password in `DATABASE_URL` differs from the database role's password. `POSTGRES_PASSWORD` in `.env` is applied only when the named database volume is initialized; changing `.env` later does not change that role.
+
+To set a new password without deleting data, run `make db-shell`, then enter `\password scigraph` at the `psql` prompt and follow its hidden password prompts. Leave with `\q`. Update `.env` and the exported `DATABASE_URL` to the same password, URL-encoding special characters in the connection URL. Restart `make run` and check `/readyz` from another terminal. Do not use `make db-reset` for a password mismatch: it deletes the database volume.
+
 ## Migrations
 
 Export `DATABASE_URL` as for the API and run:
