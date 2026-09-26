@@ -10,13 +10,13 @@ import (
 )
 
 type Config struct {
-	HTTPAddr           string
-	DatabaseURL        string
-	HTTPReadTimeout    time.Duration
-	HTTPWriteTimeout   time.Duration
-	HTTPIdleTimeout    time.Duration
-	DBConnectTimeout   time.Duration
-	DBPingTimeout      time.Duration
+	HTTPAddr         string
+	DatabaseURL      string
+	HTTPReadTimeout  time.Duration
+	HTTPWriteTimeout time.Duration
+	HTTPIdleTimeout  time.Duration
+	DBConnectTimeout time.Duration
+	DBPingTimeout    time.Duration
 }
 
 func Load() (Config, error) {
