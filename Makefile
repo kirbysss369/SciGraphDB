@@ -1,4 +1,4 @@
-.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status ml-sync embeddings
+.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status ml-sync embeddings bench-smoke
 
 COMPOSE := ./scripts/compose.sh
 
@@ -61,3 +61,8 @@ ml-sync:
 
 embeddings: up migrate ml-sync
 	@env -u DATABASE_URL uv run --locked python -m ml.embed --limit $(ML_LIMIT) --batch-size $(ML_BATCH_SIZE)
+
+BENCH_EF_SEARCH ?= 80
+
+bench-smoke:
+	@env -u DATABASE_URL go run ./cmd/bench --repeats 1 --ef-search $(BENCH_EF_SEARCH)

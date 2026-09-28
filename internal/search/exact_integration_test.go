@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -48,7 +49,7 @@ func TestExactTopKBaseline(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set DATABASE_URL_TEST to an empty disposable PostgreSQL database")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
@@ -56,7 +57,7 @@ func TestExactTopKBaseline(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 	states, err := migrations.Status(ctx, conn)
-	if err != nil || len(states) != 3 || states[0].Applied || states[1].Applied || states[2].Applied {
+	if err != nil || len(states) != 4 || states[0].Applied || states[1].Applied || states[2].Applied || states[3].Applied {
 		t.Fatalf("requires an unmigrated disposable database: states=%v err=%v", states, err)
 	}
 	if _, err := migrations.Up(ctx, conn); err != nil {
@@ -65,7 +66,7 @@ func TestExactTopKBaseline(t *testing.T) {
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-		for range 3 {
+		for range 4 {
 			if _, err := migrations.Down(cleanup, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -170,10 +171,51 @@ func TestExactTopKBaseline(t *testing.T) {
 				}
 				output := strings.Join(plan, "\n")
 				t.Log("EXPLAIN (ANALYZE, BUFFERS) on synthetic fixture:\n" + output)
-				if !strings.Contains(output, "Seq Scan on papers") || !strings.Contains(output, "Buffers:") || !strings.Contains(output, "Sort Key:") {
+				if !strings.Contains(output, "Seq Scan on papers") || !strings.Contains(output, "Buffers:") || !strings.Contains(output, "Sort Key:") || strings.Contains(output, HNSWIndexName) {
 					t.Fatal("expected exact sequential scan and sort with buffer measurements")
 				}
 			}
 		})
+	}
+
+	// The eight-row fixture is too small for the planner to prefer HNSW.
+	// Grow this disposable corpus before checking the natural plan and CLI.
+	_, err = pool.Exec(ctx, `INSERT INTO public.papers
+		(id, openalex_id, title, embedding, embedding_model, embedding_revision,
+		 embedding_text_version, embedding_text_sha256, embedded_at)
+		SELECT n + 10000, 'W-bench-' || n, 'Bench ' || n,
+		       ('[' || (n % 101)::text || ',' || ((n * 17) % 103)::text || ',' || repeat('0,', 381) || '1]')::public.vector,
+		       $1, $2, $3, repeat('b', 64), now()
+		FROM generate_series(1, 3000) AS n`, ModelID, ModelRevision, TextVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE public.papers`); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, "go", "run", "../../cmd/bench", "--query-dir", root,
+		"--repeats", "1", "--require-index")
+	cmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("bench smoke with 3000 generated vectors: %v\n%s", err, output)
+	}
+	var report struct {
+		Papers          int `json:"papers"`
+		EligibleVectors int `json:"eligible_vectors"`
+		Measurements    []struct {
+			K             int     `json:"k"`
+			Recall        float64 `json:"recall"`
+			HNSWIndexUsed bool    `json:"hnsw_index_used"`
+		} `json:"measurements"`
+	}
+	if err := json.Unmarshal(output, &report); err != nil || report.Papers != 3008 || report.EligibleVectors != 3005 || len(report.Measurements) != 6 {
+		t.Fatalf("bench report: %v; %s", err, output)
+	}
+	for _, row := range report.Measurements {
+		if !row.HNSWIndexUsed || row.Recall < 0 || row.Recall > 1 {
+			t.Fatalf("invalid HNSW measurement: %+v", row)
+		}
+		t.Logf("bench synthetic 3005 eligible vectors k=%d recall=%.3f hnsw_index_used=%v", row.K, row.Recall, row.HNSWIndexUsed)
 	}
 }

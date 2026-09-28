@@ -38,6 +38,14 @@ func TestVectorLiteralAndLimit(t *testing.T) {
 	if err := ValidateLimit(MaxLimit); err != nil {
 		t.Fatal(err)
 	}
+	for _, ef := range []int{0, -1, MaxEFSearch + 1} {
+		if err := ValidateEFSearch(ef); err == nil {
+			t.Fatalf("accepted ef_search %d", ef)
+		}
+	}
+	if err := ValidateEFSearch(DefaultEFSearch); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func replace(vector []float64, value float64) []float64 {

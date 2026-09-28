@@ -32,7 +32,7 @@ curl --max-time 5 http://127.0.0.1:8080/readyz
 
 ## Database schema
 
-With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Migration 003 adds a 384-dimensional paper vector without an ANN index.
+With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration; rolling back migration 003 deletes vectors. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Migration 003 adds a 384-dimensional paper vector; reversible migration 004 adds a partial HNSW cosine index.
 
 ## OpenAlex probe
 
@@ -46,6 +46,6 @@ After `make migrate`, run `go run ./cmd/importer --search 'graph databases' --li
 
 Install [uv](https://docs.astral.sh/uv/) separately, then run `make embeddings` after importing papers. It starts PostgreSQL, applies the current migrations, installs locked Python dependencies, and scans the first 100 papers with the pinned CPU model. `make embeddings ML_LIMIT=0` scans all papers in bounded batches. Repeating the command skips unchanged vectors. See [the embedding workflow](docs/development.md#paper-embeddings) for the model, data checks, and rollback.
 
-## Exact vector search
+## Vector search
 
-After generating embeddings, `POST /api/v1/search/vector` accepts a 384-number JSON `embedding` and `limit` (default 10, maximum 100) and returns papers ordered by cosine distance, then paper ID. It searches only the pinned MiniLM model and text version. The offline CLI can encode a text query to a vector file with `uv run --locked python -m ml.query --text 'graph databases' --output /tmp/scigraph-query.json`, then search with `go run ./cmd/vector-search --vector-file /tmp/scigraph-query.json --limit 10`. See [the search guide](docs/development.md#exact-vector-search) and [fixed ground truth](experiments/exact_v1/README.md). No HNSW or IVFFlat index is present.
+After generating embeddings, `POST /api/v1/search/vector` retains genuinely exact cosine search for the pinned MiniLM model and text version. Encode a text query with `uv run --locked python -m ml.query --text 'graph databases' --output /tmp/scigraph-query.json`; the CLI supports both `go run ./cmd/vector-search --vector-file /tmp/scigraph-query.json --limit 10` and `--method hnsw --ef-search 80`. `make bench-smoke` compares both methods on the fixed query vectors and reports Recall@10/20, latency, and JSON plans. See [the search guide](docs/development.md#exact-vector-search) and [fixed ground truth](experiments/exact_v1/README.md).

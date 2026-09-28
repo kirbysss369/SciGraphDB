@@ -54,13 +54,21 @@ func run(args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("vector-search", flag.ContinueOnError)
 	path := flags.String("vector-file", "", "offline JSON query vector")
 	limit := flags.Int("limit", search.DefaultLimit, "number of results (1..100)")
+	method := flags.String("method", "exact", "exact or hnsw")
+	efSearch := flags.Int("ef-search", search.DefaultEFSearch, "HNSW query candidate list size (1..1000)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *path == "" {
-		return errors.New("usage: go run ./cmd/vector-search --vector-file FILE [--limit 1..100]")
+		return errors.New("usage: go run ./cmd/vector-search --vector-file FILE [--limit 1..100] [--method exact|hnsw] [--ef-search 1..1000]")
 	}
 	if err := search.ValidateLimit(*limit); err != nil {
+		return err
+	}
+	if *method != "exact" && *method != "hnsw" {
+		return errors.New("method must be exact or hnsw")
+	}
+	if err := search.ValidateEFSearch(*efSearch); err != nil {
 		return err
 	}
 	file, err := os.Open(*path)
@@ -86,7 +94,12 @@ func run(args []string, output io.Writer) error {
 		return err
 	}
 	defer pool.Close()
-	results, err := search.Exact(ctx, pool, vector, *limit)
+	var results []search.Result
+	if *method == "hnsw" {
+		results, err = search.HNSW(ctx, pool, vector, *limit, *efSearch)
+	} else {
+		results, err = search.Exact(ctx, pool, vector, *limit)
+	}
 	if err != nil {
 		return fmt.Errorf("vector search: %w", err)
 	}

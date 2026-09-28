@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:0.8.6-pg18
+    image: docker.io/pgvector/pgvector:0.8.6-pg18
     environment:
       POSTGRES_DB: scigraph
       POSTGRES_USER: ${POSTGRES_USER:-scigraph}
