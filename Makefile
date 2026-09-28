@@ -1,4 +1,4 @@
-.PHONY: doctor up down logs ps db-shell db-reset fmt test run migrate migrate-down migrate-status
+.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status
 
 COMPOSE := ./scripts/compose.sh
 
@@ -8,6 +8,7 @@ doctor:
 up:
 	@$(COMPOSE) up -d db
 	@./scripts/wait-db.sh
+	@./scripts/ensure-db-password.sh
 
 down:
 	@$(COMPOSE) down
@@ -37,13 +38,17 @@ test:
 	@go test ./...
 
 run:
-	@go run ./cmd/api
+	@env -u DATABASE_URL go run ./cmd/api
+
+dev: up
+	@env -u DATABASE_URL go run ./cmd/migrate up
+	@env -u DATABASE_URL go run ./cmd/api
 
 migrate:
-	@go run ./cmd/migrate up
+	@env -u DATABASE_URL go run ./cmd/migrate up
 
 migrate-down:
-	@go run ./cmd/migrate down
+	@env -u DATABASE_URL go run ./cmd/migrate down
 
 migrate-status:
-	@go run ./cmd/migrate status
+	@env -u DATABASE_URL go run ./cmd/migrate status

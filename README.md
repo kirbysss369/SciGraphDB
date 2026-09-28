@@ -4,32 +4,24 @@ SciGraphDB is a research project for scientific paper retrieval and relation ana
 
 ## Start locally
 
-1. Copy the example configuration: `cp .env.example .env`.
-2. Set a local password in `.env`.
-3. Check the development tools: `make doctor`.
-4. Start the database: `make up`.
-5. Open `psql`: `make db-shell`.
-
-Inside `psql`, enable and inspect the extension:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-SELECT current_setting('server_version');
-SELECT extversion FROM pg_extension WHERE extname = 'vector';
+```bash
+cp .env.example .env
+# Set POSTGRES_PASSWORD in .env to a private local password.
+make doctor
+make dev
 ```
 
-`make down` stops the service and keeps its data. `make db-reset` deletes the database volume and requires an explicit confirmation. The development setup for Ubuntu and Fedora is in [docs/development.md](docs/development.md).
+`make dev` starts PostgreSQL, verifies its password, applies migrations and runs the API in the foreground. In another terminal, run `curl http://127.0.0.1:8080/healthz` and `curl http://127.0.0.1:8080/readyz`. Press Ctrl+C to stop the API; `make down` stops PostgreSQL but preserves its data. `make db-reset` deletes the database volume and requires confirmation. Ubuntu and Fedora details are in [docs/development.md](docs/development.md).
 
 ## API
 
-Start PostgreSQL with `make up`. In **terminal 1**, export a URL whose password matches `.env`, then leave the API running:
+To run the API separately after `make up`, use:
 
 ```bash
-export DATABASE_URL='postgres://scigraph:<your-password>@127.0.0.1:5432/scigraph?sslmode=disable'
 make run
 ```
 
-While terminal 1 shows `HTTP server listening`, use **terminal 2**:
+While the API shows `HTTP server listening`, use another terminal:
 
 ```bash
 curl --max-time 5 http://127.0.0.1:8080/healthz
@@ -40,12 +32,12 @@ curl --max-time 5 http://127.0.0.1:8080/readyz
 
 ## Database schema
 
-With `DATABASE_URL` exported and PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Vector columns are not implemented yet.
+With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Vector columns are not implemented yet.
 
 ## OpenAlex probe
 
-The read-only works client can query OpenAlex without a database. For a small keyless check, run `go run ./cmd/openalex-probe --search 'graph databases' --limit 3`. Export `OPENALEX_API_KEY` for larger probes. The client reads `OPENALEX_BASE_URL` and `OPENALEX_TIMEOUT` from the shell; `.env` is not loaded automatically. See [OpenAlex client setup](docs/development.md#openalex-client) for configuration, rate limits, and test commands. The probe prints only work IDs, years, and titles; it does not import works.
+The read-only works client can query OpenAlex without a database. For a small keyless check, run `go run ./cmd/openalex-probe --search 'graph databases' --limit 3`. Set `OPENALEX_API_KEY` in `.env` for larger probes. See [OpenAlex client setup](docs/development.md#openalex-client) for configuration, rate limits, and test commands. The probe prints only work IDs, years, and titles; it does not import works.
 
 ## Import works
 
-After `make migrate`, run `go run ./cmd/importer --search 'graph databases' --limit 10` with `DATABASE_URL` exported. The importer writes papers, topics, paper-topic scores and citations between imported papers. It retains unresolved references until their target works are imported. For 100 or more works, export `OPENALEX_API_KEY` and increase `--limit` gradually. Optional `--from-year` and `--to-year` flags narrow the API results before applying the limit. See [importing works](docs/development.md#importing-works) for checks and rollback notes.
+After `make migrate`, run `go run ./cmd/importer --search 'graph databases' --limit 10`. The importer writes papers, topics, paper-topic scores and citations between imported papers. It retains unresolved references until their target works are imported. For 100 or more works, set `OPENALEX_API_KEY` in `.env` and increase `--limit` gradually. Optional `--from-year` and `--to-year` flags narrow the API results before applying the limit. See [importing works](docs/development.md#importing-works) for checks and rollback notes.

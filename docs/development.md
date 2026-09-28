@@ -10,16 +10,16 @@ On Fedora 44, install Podman and a Compose provider (for example `podman-compose
 cp .env.example .env
 # Edit POSTGRES_PASSWORD in .env before starting.
 make doctor
-make up
-make ps
-make db-shell
+make dev
 ```
+
+`make dev` starts the container, checks the credentials, applies the migrations, and runs the API in the foreground. In a second terminal, use `make ps`, `make db-shell`, and `curl http://127.0.0.1:8080/readyz`. Ctrl+C stops the API; `make down` also stops the database. Use `make up` and `make run` if you want to start them separately.
 
 The database is available only on `127.0.0.1:${PG_PORT:-5432}` on the host. Set `PG_PORT` in `.env` if 5432 is already occupied. The database name is `scigraph`. A named volume stores PostgreSQL 18 data under `/var/lib/postgresql`; PostgreSQL 18 container images use this parent mount to support their versioned data directory. The volume survives `make down` and container replacement.
 
 Fedora enables SELinux by default. A named volume lets the container engine handle the database storage context, avoiding permissions and labeling problems caused by a host directory bind mount. Do not disable SELinux or make the data directory world writable.
 
-`make up` starts the service and waits for PostgreSQL TCP readiness; Compose also monitors the healthcheck. `make logs` follows the database logs; `make down` stops the service while retaining data. `make db-reset` prompts before deleting the database volume. The PostgreSQL container includes `psql`, so a host installation of `psql` is unnecessary.
+`make up` starts the service, waits for PostgreSQL, checks password authentication and verifies the Go connection. Compose also monitors the healthcheck. `make logs` follows the database logs; `make down` stops the service while retaining data. `make db-reset` prompts before deleting the database volume. The PostgreSQL container includes `psql`, so a host installation of `psql` is unnecessary.
 
 To verify the image and persistence manually:
 
@@ -39,16 +39,19 @@ SELECT * FROM bootstrap_check;
 DROP TABLE bootstrap_check;
 ```
 
-The extension creation above is a manual environment check. A later migration will enable it for application databases.
+The extension creation above is a manual environment check; migration 001 also enables it.
 
 ## Go API configuration
 
-The Go process reads the shell environment. `.env` configures Compose but is not loaded automatically by Go; export `DATABASE_URL` before `make run`. The DSN must match the credentials in `.env` and use `sslmode=disable` only for the local loopback database. URL-encode special characters in the password. The defaults below apply when a variable is absent:
+Go commands read `.env` automatically; set `POSTGRES_PASSWORD` there once. They derive a loopback connection URL from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `PG_PORT` and escape password punctuation automatically. Shell variables override values in `.env`. Use single quotes for a value containing `$` or spaces, such as `POSTGRES_PASSWORD='a$b c'`; interpolation syntax is rejected to avoid disagreement with Compose. Keep `.env` private. An explicitly exported `DATABASE_URL` is supported for direct `go run` commands and external databases; the local Make targets clear that override so a stale exported URL cannot break the local workflow. The defaults below apply when a variable is absent:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `HTTP_ADDR` | `127.0.0.1:8080` | HTTP listener |
-| `DATABASE_URL` | required | PostgreSQL connection URL |
+| `POSTGRES_PASSWORD` | required | Local container and Go database password |
+| `POSTGRES_USER` | `scigraph` | Local database user |
+| `PG_PORT` | `5432` | Local host port |
+| `DATABASE_URL` | derived for local use | Optional explicit URL for direct Go commands and CI |
 | `HTTP_READ_TIMEOUT` | `5s` | Request read timeout |
 | `HTTP_WRITE_TIMEOUT` | `10s` | Response write timeout |
 | `HTTP_IDLE_TIMEOUT` | `60s` | Idle connection timeout |
@@ -57,13 +60,13 @@ The Go process reads the shell environment. `.env` configures Compose but is not
 
 Run `make run` in one terminal and send `curl` requests from another while it remains running. Ctrl+C ends the process, so later requests will get connection refused; Make may report `Error 1` because the foreground command was interrupted. The API starts even when the database is offline; `/readyz` then returns 503. It closes the listener gracefully on SIGINT or SIGTERM and waits up to 10 seconds for active requests. Run `make fmt`, `go vet ./...`, and `make test` after Go changes.
 
-If `/healthz` returns 200 but `/readyz` returns 503, run `make ps` and `make migrate-status` from the shell where `DATABASE_URL` is exported. A `password authentication failed for user "scigraph"` error means that the password in `DATABASE_URL` differs from the database role's password. `POSTGRES_PASSWORD` in `.env` is applied only when the named database volume is initialized; changing `.env` later does not change that role.
+If `/healthz` returns 200 but `/readyz` returns 503, run `make ps`, `make migrate-status` and `make logs`. If you edit `POSTGRES_PASSWORD` in `.env` after the database volume exists, `make up` updates the local database role through its container socket and verifies a TCP login. This preserves your data. Other programs using the old password must update their credentials. Container initialization itself only uses `POSTGRES_PASSWORD` on an empty volume.
 
-To set a new password without deleting data, run `make db-shell`, then enter `\password scigraph` at the `psql` prompt and follow its hidden password prompts. Leave with `\q`. Update `.env` and the exported `DATABASE_URL` to the same password, URL-encoding special characters in the connection URL. Restart `make run` and check `/readyz` from another terminal. Do not use `make db-reset` for a password mismatch: it deletes the database volume.
+If `make up` cannot change the role password, inspect the error and run `make db-shell`, then `\password scigraph` at the `psql` prompt. Do not use `make db-reset` for a password mismatch: it deletes the database volume.
 
 ## Migrations
 
-Export `DATABASE_URL` as for the API and run:
+Run against the local database after `make up`:
 
 ```bash
 make migrate-status
@@ -84,7 +87,7 @@ Create `scigraph_test` separately before running this command and use credential
 
 ## OpenAlex client
 
-`cmd/openalex-probe` queries works without using PostgreSQL. Set these shell variables when needed (the Go program does not load `.env`):
+`cmd/openalex-probe` queries works without using PostgreSQL. Set these variables in `.env` or the shell:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -98,7 +101,7 @@ For a small manual network check, run:
 go run ./cmd/openalex-probe --search 'graph databases' --limit 3
 ```
 
-For a larger probe, export `OPENALEX_API_KEY` from a private shell or secret store. Keep it out of command arguments, logs, and commits. Requests use `select` for the fields the client reads, at most 100 results per page, and `meta.next_cursor` for pagination. Transient HTTP 429 and 5xx responses get at most three attempts with short backoff. A zero remaining daily budget or a `Retry-After` beyond the five-second retry window fails promptly so a probe cannot wait all day. The maximum client search limit is 10,000 works; use an OpenAlex snapshot for bulk exports. API responses and abstracts are kept in memory only.
+For a larger probe, set `OPENALEX_API_KEY` in your ignored `.env` or a private shell. Keep it out of command arguments, logs, and commits. Requests use `select` for the fields the client reads, at most 100 results per page, and `meta.next_cursor` for pagination. Transient HTTP 429 and 5xx responses get at most three attempts with short backoff. A zero remaining daily budget or a `Retry-After` beyond the five-second retry window fails promptly so a probe cannot wait all day. The maximum client search limit is 10,000 works; use an OpenAlex snapshot for bulk exports. API responses and abstracts are kept in memory only.
 
 Tests use local `httptest.Server` fixtures and never need a public API call:
 
@@ -112,13 +115,13 @@ The public probe above is optional. OpenAlex documents [authentication and rate 
 
 ## Importing works
 
-Apply both migrations (`make migrate`) and export `DATABASE_URL`. Run a small import first:
+Apply both migrations (`make migrate`), then run a small import:
 
 ```bash
 go run ./cmd/importer --search 'graph databases' --from-year 2020 --to-year 2024 --limit 10
 ```
 
-The year bounds are inclusive OpenAlex publication-date filters and are applied before `--limit`. Without a key, the CLI permits at most 10 works. For a 100-work sample, export `OPENALEX_API_KEY` securely and repeat with `--limit 100`; inspect the rows and daily API budget before trying `--limit 1000`. The client fetches at most 10,000 works per invocation. No automated test calls the public API, and a keyless probe/import should stay small.
+The year bounds are inclusive OpenAlex publication-date filters and are applied before `--limit`. Without a key, the CLI permits at most 10 works. For a 100-work sample, set `OPENALEX_API_KEY` privately in `.env` or the shell and repeat with `--limit 100`; inspect the rows and daily API budget before trying `--limit 1000`. The client fetches at most 10,000 works per invocation. No automated test calls the public API, and a keyless probe/import should stay small.
 
 Each batch of up to 100 works commits atomically. `papers` uses `ON CONFLICT (openalex_id) DO UPDATE` to replace DOI, title, abstract, year, citation count, metadata and `updated_at` while preserving `id` and `created_at`. `topics` updates names on `openalex_id` conflict. The import replaces each work's outgoing `paper_topics` and citations, then inserts topic pairs with `ON CONFLICT (paper_id, topic_id) DO UPDATE` for scores and queues unresolved references with `ON CONFLICT (citing_paper_id, cited_openalex_id) DO NOTHING`. Once both papers exist, a citation is inserted in the citing → cited direction with `ON CONFLICT (citing_paper_id, cited_paper_id) DO NOTHING`, and its queue entry is removed. Re-importing does not duplicate rows; removing a reference from OpenAlex removes that outgoing edge on the next import of its citing paper. Incoming edges from other works are retained. `metadata` stores only source and reference count, not raw API responses.
 

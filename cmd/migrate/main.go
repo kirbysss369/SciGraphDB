@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kirbysss369/SciGraphDB/db/migrations"
+	"github.com/kirbysss369/SciGraphDB/internal/devconfig"
 )
 
 func main() {
@@ -26,9 +27,12 @@ func run(args []string) error {
 	if len(args) != 1 || (args[0] != "up" && args[0] != "down" && args[0] != "status") {
 		return errors.New("usage: go run ./cmd/migrate {up|down|status}")
 	}
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return errors.New("DATABASE_URL is required")
+	if err := devconfig.Load(); err != nil {
+		return err
+	}
+	databaseURL, err := devconfig.DatabaseURL()
+	if err != nil {
+		return err
 	}
 	cfg, err := pgx.ParseConfig(databaseURL)
 	if err != nil {

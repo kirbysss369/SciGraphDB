@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/kirbysss369/SciGraphDB/internal/devconfig"
 )
 
 // Config describes an OpenAlex API connection. The API key is never placed in a URL.
@@ -16,6 +18,9 @@ type Config struct {
 }
 
 func LoadConfig() (Config, error) {
+	if err := devconfig.Load(); err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		BaseURL: os.Getenv("OPENALEX_BASE_URL"),
 		APIKey:  os.Getenv("OPENALEX_API_KEY"),
