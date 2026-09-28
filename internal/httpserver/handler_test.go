@@ -23,7 +23,7 @@ func (f *fakePinger) Ping(context.Context) error {
 
 func TestHealthAndReadiness(t *testing.T) {
 	pinger := &fakePinger{}
-	handler := New(pinger, time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	handler := New(pinger, time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 
 	for _, tt := range []struct {
 		path   string
@@ -57,7 +57,7 @@ func TestReadinessHasDeadline(t *testing.T) {
 		}
 		return nil
 	})
-	handler := New(pinger, time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	handler := New(pinger, time.Second, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if recorder.Code != http.StatusOK {

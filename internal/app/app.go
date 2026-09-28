@@ -12,6 +12,7 @@ import (
 	"github.com/kirbysss369/SciGraphDB/internal/config"
 	"github.com/kirbysss369/SciGraphDB/internal/database"
 	"github.com/kirbysss369/SciGraphDB/internal/httpserver"
+	"github.com/kirbysss369/SciGraphDB/internal/search"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -29,7 +30,9 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	server := &http.Server{
-		Handler:           httpserver.New(pool, cfg.DBPingTimeout, logger),
+		Handler: httpserver.New(pool, cfg.DBPingTimeout, logger, func(ctx context.Context, vector []float64, limit int) ([]search.Result, error) {
+			return search.Exact(ctx, pool, vector, limit)
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,

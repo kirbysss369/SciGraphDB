@@ -3,6 +3,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/kirbysss369/SciGraphDB/internal/config"
 	"github.com/kirbysss369/SciGraphDB/internal/importer"
 	"github.com/kirbysss369/SciGraphDB/internal/openalex"
+	"github.com/kirbysss369/SciGraphDB/internal/search"
 )
 
 // This test owns the schema in an empty disposable DATABASE_URL_TEST database.
@@ -87,6 +89,18 @@ func TestMigrateImportAndServe(t *testing.T) {
 	if papers != 2 || topics != 1 || citations != 1 {
 		t.Fatalf("persisted papers=%d topics=%d citations=%d", papers, topics, citations)
 	}
+	queryVector := make([]float64, search.Dimension)
+	queryVector[0] = 1
+	literal, err := search.VectorLiteral(queryVector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.papers SET embedding = $1::public.vector,
+		embedding_model = $2, embedding_revision = $3, embedding_text_version = $4,
+		embedding_text_sha256 = repeat('a', 64), embedded_at = now()
+		WHERE openalex_id = 'W1'`, literal, search.ModelID, search.ModelRevision, search.TextVersion); err != nil {
+		t.Fatal(err)
+	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -122,6 +136,21 @@ func TestMigrateImportAndServe(t *testing.T) {
 		if response.StatusCode != http.StatusOK {
 			t.Errorf("GET %s: status %d", endpoint, response.StatusCode)
 		}
+	}
+	body, err := json.Marshal(map[string]any{"embedding": queryVector, "limit": 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := httpClient.Post("http://"+addr+"/api/v1/search/vector", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var found struct {
+		Results []search.Result `json:"results"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&found); err != nil || response.StatusCode != http.StatusOK || len(found.Results) != 1 || found.Results[0].OpenAlexID != "W1" || found.Results[0].Distance != 0 {
+		t.Fatalf("vector search status=%d results=%+v err=%v", response.StatusCode, found.Results, err)
 	}
 	stopServer()
 	select {

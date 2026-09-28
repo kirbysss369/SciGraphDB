@@ -178,3 +178,24 @@ FROM sample;
 ```
 
 Run `make embeddings` twice. The second summary should show `embedded=0` when source text and versions have not changed. `null_vectors` may reflect titles too short to embed; these remain null. To run database integration tests, use a **disposable database** with migration 003 applied and `DATABASE_URL_TEST` set, then run `uv run --locked python -m pytest -m integration -q`. The fixture test inserts 100 synthetic works, interrupts after one batch, resumes, checks 384 dimensions, verifies version and source invalidation, reruns unchanged, and deletes its fixture. `RUN_MODEL_SMOKE=1` additionally runs the pinned model on 100 synthetic works using CPU, checks dimensions, null/stale counts, and idempotence; CI runs this check. No automated test alters your imported OpenAlex dataset. `make migrate-down` removes migration 003 and permanently discards the vectors; reapply it and rerun embeddings to regenerate them.
+
+## Exact vector search
+
+`POST /api/v1/search/vector` accepts exactly one JSON object. `embedding` must be 384 finite numbers that remain nonzero when converted to pgvector's float32 format; `limit` is optional (default 10, range 1–100). The endpoint accepts raw query vectors, including vectors generated from text by `ml.query`. It searches rows with non-null, nonzero vectors and matching model `sentence-transformers/all-MiniLM-L6-v2`, revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, and preprocessing version `title-abstract-v1`. Update the Go constants in `internal/search/exact.go` when changing the embedding workflow. Vectors from other models or text versions are excluded.
+
+```json
+{"embedding": [0.1, 0.2], "limit": 10}
+```
+
+The shortened array above illustrates the JSON shape; send **384** values. A successful response is `{"results":[{"id":1,"openalex_id":"https://openalex.org/W1","title":"Example","publication_year":2024,"distance":0.25}]}`. `publication_year` can be `null`. `distance` is cosine distance (`1 − cosine similarity`), so **smaller is closer**. Ranking is `distance ASC, id ASC`, including deterministic ID order for ties. Invalid JSON, vector, or limit returns HTTP 400; a failed database query returns HTTP 503. Results are an empty array when no eligible embeddings exist. The handler has a 64 KiB request bound and a five-second query deadline. pgvector's `<=>` operator performs cosine distance, and with no ANN index this is an exact scan and sort. There is no HNSW or IVFFlat index in the schema.
+
+For a text query, encode locally on CPU, then pass the versioned vector file to the Go CLI:
+
+```bash
+uv run --locked python -m ml.query --text 'graph database citation analysis' --output /tmp/scigraph-query.json
+go run ./cmd/vector-search --vector-file /tmp/scigraph-query.json --limit 10
+```
+
+The query text is whitespace-normalized, encoded directly (without the paper `Title:`/`Abstract:` labels), and not written to the JSON file. The file includes the model ID, exact revision, preprocessing version, and 384 floats; the Go CLI rejects a mismatched version. It reads `.env` using the same local password rules as the API. Query files are local artifacts: keep private queries out of commits.
+
+[`experiments/exact_v1`](../experiments/exact_v1/README.md) pins synthetic query vectors and Top-K results as correctness ground truth for later ANN experiments. The test `go test -tags integration ./internal/search -run TestExactTopKBaseline -v` uses a disposable `DATABASE_URL_TEST`, repeats rankings, and logs `EXPLAIN (ANALYZE, BUFFERS)` for one query. Its buffer counts and execution time describe only that eight-paper synthetic fixture; measure imported datasets separately before making performance claims.

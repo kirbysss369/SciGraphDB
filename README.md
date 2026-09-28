@@ -45,3 +45,7 @@ After `make migrate`, run `go run ./cmd/importer --search 'graph databases' --li
 ## Paper embeddings
 
 Install [uv](https://docs.astral.sh/uv/) separately, then run `make embeddings` after importing papers. It starts PostgreSQL, applies the current migrations, installs locked Python dependencies, and scans the first 100 papers with the pinned CPU model. `make embeddings ML_LIMIT=0` scans all papers in bounded batches. Repeating the command skips unchanged vectors. See [the embedding workflow](docs/development.md#paper-embeddings) for the model, data checks, and rollback.
+
+## Exact vector search
+
+After generating embeddings, `POST /api/v1/search/vector` accepts a 384-number JSON `embedding` and `limit` (default 10, maximum 100) and returns papers ordered by cosine distance, then paper ID. It searches only the pinned MiniLM model and text version. The offline CLI can encode a text query to a vector file with `uv run --locked python -m ml.query --text 'graph databases' --output /tmp/scigraph-query.json`, then search with `go run ./cmd/vector-search --vector-file /tmp/scigraph-query.json --limit 10`. See [the search guide](docs/development.md#exact-vector-search) and [fixed ground truth](experiments/exact_v1/README.md). No HNSW or IVFFlat index is present.
