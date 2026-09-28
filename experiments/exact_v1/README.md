@@ -10,4 +10,4 @@ Run the disposable-database check and inspect its measured plan:
 DATABASE_URL_TEST='postgres://.../disposable?sslmode=disable' go test -tags integration ./internal/search -run TestExactTopKBaseline -v
 ```
 
-The test applies the migrations to an empty disposable database, inserts the fixture, logs `EXPLAIN (ANALYZE, BUFFERS)` for `positive-x`, and rolls everything back. The expected plan has a sequential scan and explicit sort; times and buffer counts depend on the test machine. No ANN index is created.
+The test applies the migrations to an empty disposable database, inserts the fixture, logs `EXPLAIN (ANALYZE, BUFFERS)` for `positive-x`, and rolls everything back. The exact plan has a sequential scan and explicit sort even with migration 004's HNSW index present. The test then grows the disposable corpus to 3,005 eligible synthetic vectors to inspect HNSW plans and smoke-test `cmd/bench`. The fixture's original Top-K answers are checked before those extra rows are inserted. Times and buffer counts depend on the test machine.

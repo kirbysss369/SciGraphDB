@@ -1,0 +1,1 @@
+DROP INDEX public.papers_embedding_hnsw_cosine_idx;

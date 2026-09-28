@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -20,15 +21,19 @@ const (
 	TextVersion   = "title-abstract-v1"
 )
 
-// ExactSQL is the shared query for the HTTP API, CLI, and EXPLAIN baseline.
-// There is intentionally no ANN index. The primary key resolves exact ties.
-const ExactSQL = `SELECT id, openalex_id, title, publication_year,
-	       embedding <=> $1::public.vector AS distance
+// Materialization prevents the planner from using an ANN ordering to build
+// ground truth, regardless of what indexes are added to papers later.
+const ExactSQL = `WITH eligible AS MATERIALIZED (
+	SELECT id, openalex_id, title, publication_year, embedding
 	FROM public.papers
 	WHERE embedding IS NOT NULL AND public.vector_norm(embedding) > 0
 	  AND embedding_model = $2 AND embedding_revision = $3
 	  AND embedding_text_version = $4
-	ORDER BY distance ASC, id ASC LIMIT $5`
+)
+SELECT id, openalex_id, title, publication_year,
+	   embedding <=> $1::public.vector AS distance
+FROM eligible
+ORDER BY distance ASC, id ASC LIMIT $5`
 
 type Result struct {
 	ID              int64   `json:"id"`
@@ -87,6 +92,10 @@ func Exact(ctx context.Context, pool *pgxpool.Pool, vector []float64, limit int)
 	if err != nil {
 		return nil, err
 	}
+	return collect(rows, limit)
+}
+
+func collect(rows pgx.Rows, limit int) ([]Result, error) {
 	defer rows.Close()
 	results := make([]Result, 0, limit)
 	for rows.Next() {

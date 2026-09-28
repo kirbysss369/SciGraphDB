@@ -38,13 +38,13 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 3 || before[0].Applied || before[1].Applied || before[2].Applied {
+	if len(before) != 4 || before[0].Applied || before[1].Applied || before[2].Applied || before[3].Applied {
 		t.Fatal("integration test requires a database without applied migrations")
 	}
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
-		for range 3 {
+		for range 4 {
 			if _, err := Down(cleanupCtx, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -52,7 +52,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	}()
 
 	changed, err := Up(ctx, conn)
-	if err != nil || len(changed) != 3 {
+	if err != nil || len(changed) != 4 {
 		t.Fatalf("first up: changed=%d err=%v", len(changed), err)
 	}
 	if changed, err := Up(ctx, conn); err != nil || len(changed) != 0 {
@@ -61,7 +61,21 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	verifySchema(t, ctx, conn, true)
 	verifyConstraints(t, ctx, conn)
 	verifyEmbeddingInvalidation(t, ctx, conn)
+	var indexOptions []string
+	if err := conn.QueryRow(ctx, `SELECT reloptions FROM pg_class WHERE oid = 'public.papers_embedding_hnsw_cosine_idx'::regclass`).Scan(&indexOptions); err != nil {
+		t.Fatal(err)
+	}
+	if len(indexOptions) != 2 || indexOptions[0] != "m=16" || indexOptions[1] != "ef_construction=64" {
+		t.Fatalf("HNSW build options: %v", indexOptions)
+	}
 
+	if _, err := Down(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	var indexGone bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.papers_embedding_hnsw_cosine_idx') IS NULL`).Scan(&indexGone); err != nil || !indexGone {
+		t.Fatalf("HNSW rollback: gone=%v err=%v", indexGone, err)
+	}
 	if _, err := Down(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +99,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	verifySchema(t, ctx, conn, false)
 
 	changed, err = Up(ctx, conn)
-	if err != nil || len(changed) != 3 {
+	if err != nil || len(changed) != 4 {
 		t.Fatalf("second up: changed=%d err=%v", len(changed), err)
 	}
 	verifySchema(t, ctx, conn, true)

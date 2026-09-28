@@ -33,7 +33,7 @@ func TestImportCycle(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 	states, err := migrations.Status(ctx, conn)
-	if err != nil || len(states) != 3 || states[0].Applied || states[1].Applied || states[2].Applied {
+	if err != nil || len(states) != 4 || states[0].Applied || states[1].Applied || states[2].Applied || states[3].Applied {
 		t.Fatalf("integration test requires an unmigrated disposable database: states=%v err=%v", states, err)
 	}
 	if _, err := migrations.Up(ctx, conn); err != nil {
@@ -42,7 +42,7 @@ func TestImportCycle(t *testing.T) {
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		for range 3 {
+		for range 4 {
 			if _, err := migrations.Down(cleanupCtx, conn); err != nil {
 				t.Errorf("cleanup migrations: %v", err)
 			}
