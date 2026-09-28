@@ -57,6 +57,8 @@ jobs:
         run: go test -tags integration ./db/migrations -v
       - name: Importer fixture cycle
         run: go test -tags integration ./internal/importer -v
+      - name: End-to-end migration import and API
+        run: go test -tags integration ./internal/app -v
       - name: CLI up down up
         run: |
           go run ./cmd/migrate status
@@ -64,3 +66,26 @@ jobs:
           go run ./cmd/migrate status
           go run ./cmd/migrate down
           go run ./cmd/migrate up
+
+  local-compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - name: Start, migrate, rotate password, and preserve data
+        run: |
+          cp .env.example .env
+          sed -i 's/POSTGRES_PASSWORD=change-me-locally/POSTGRES_PASSWORD=first-ci-password/' .env
+          sed -i 's/PG_PORT=5432/PG_PORT=55432/' .env
+          make up
+          make migrate
+          ./scripts/compose.sh exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "INSERT INTO papers (id, openalex_id, title) VALUES (1, '\''W-ci'\'', '\''Persistence check'\'')"'
+          sed -i 's/POSTGRES_PASSWORD=first-ci-password/POSTGRES_PASSWORD=second-ci-password/' .env
+          make up
+          make migrate-status
+          ./scripts/compose.sh exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM papers WHERE openalex_id = '\''W-ci'\''"' | grep -qx '1'
+      - name: Stop local database
+        if: always()
+        run: ./scripts/compose.sh down

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/kirbysss369/SciGraphDB/internal/database"
+	"github.com/kirbysss369/SciGraphDB/internal/devconfig"
 	"github.com/kirbysss369/SciGraphDB/internal/importer"
 	"github.com/kirbysss369/SciGraphDB/internal/openalex"
 )
@@ -30,6 +31,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, logger *slog.Logger) (importer.Stats, error) {
+	if err := devconfig.Load(); err != nil {
+		return importer.Stats{}, err
+	}
 	flags := flag.NewFlagSet("importer", flag.ContinueOnError)
 	search := flags.String("search", "", "words to search in OpenAlex works")
 	fromYear := flags.Int("from-year", 0, "inclusive first publication year (optional)")
@@ -44,9 +48,9 @@ func run(ctx context.Context, args []string, logger *slog.Logger) (importer.Stat
 		(*fromYear != 0 && *toYear != 0 && *fromYear > *toYear) {
 		return importer.Stats{}, errors.New("usage: go run ./cmd/importer --search TEXT [--from-year YEAR] [--to-year YEAR] [--limit 1..10000]")
 	}
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		return importer.Stats{}, errors.New("DATABASE_URL is required")
+	url, err := devconfig.DatabaseURL()
+	if err != nil {
+		return importer.Stats{}, err
 	}
 	connectTimeout := 3 * time.Second
 	if text, ok := os.LookupEnv("DB_CONNECT_TIMEOUT"); ok {

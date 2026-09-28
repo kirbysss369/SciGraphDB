@@ -7,6 +7,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/kirbysss369/SciGraphDB/internal/devconfig"
 )
 
 type Config struct {
@@ -20,18 +22,21 @@ type Config struct {
 }
 
 func Load() (Config, error) {
+	if err := devconfig.Load(); err != nil {
+		return Config{}, err
+	}
+	databaseURL, err := devconfig.DatabaseURL()
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		HTTPAddr:    envOrDefault("HTTP_ADDR", "127.0.0.1:8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-	}
-	if cfg.DatabaseURL == "" {
-		return Config{}, errors.New("DATABASE_URL is required")
+		DatabaseURL: databaseURL,
 	}
 	if err := validateAddr(cfg.HTTPAddr); err != nil {
 		return Config{}, err
 	}
 
-	var err error
 	for _, item := range []struct {
 		name         string
 		defaultValue string
