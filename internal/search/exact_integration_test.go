@@ -200,13 +200,23 @@ func TestExactTopKBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bench smoke with 3000 generated vectors: %v\n%s", err, output)
 	}
+	if path := os.Getenv("BENCH_REPORT_PATH"); path != "" {
+		if err := os.WriteFile(path, output, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var report struct {
 		Papers          int `json:"papers"`
 		EligibleVectors int `json:"eligible_vectors"`
+		EFSearch        int `json:"ef_search"`
+		BuildOptions    []string `json:"build_options"`
 		Measurements    []struct {
+			Query         string  `json:"query"`
 			K             int     `json:"k"`
 			Recall        float64 `json:"recall"`
 			HNSWIndexUsed bool    `json:"hnsw_index_used"`
+			ExactMedianMS float64 `json:"exact_median_ms"`
+			HNSWMedianMS  float64 `json:"hnsw_median_ms"`
 		} `json:"measurements"`
 	}
 	if err := json.Unmarshal(output, &report); err != nil || report.Papers != 3008 || report.EligibleVectors != 3005 || len(report.Measurements) != 6 {
@@ -216,6 +226,8 @@ func TestExactTopKBaseline(t *testing.T) {
 		if !row.HNSWIndexUsed || row.Recall < 0 || row.Recall > 1 {
 			t.Fatalf("invalid HNSW measurement: %+v", row)
 		}
-		t.Logf("bench synthetic 3005 eligible vectors k=%d recall=%.3f hnsw_index_used=%v", row.K, row.Recall, row.HNSWIndexUsed)
+		t.Logf("bench synthetic papers=%d eligible=%d build=%v ef_search=%d query=%s k=%d recall=%.3f exact_ms=%.3f hnsw_ms=%.3f hnsw_index_used=%v",
+			report.Papers, report.EligibleVectors, report.BuildOptions, report.EFSearch,
+			row.Query, row.K, row.Recall, row.ExactMedianMS, row.HNSWMedianMS, row.HNSWIndexUsed)
 	}
 }

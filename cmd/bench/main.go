@@ -36,31 +36,31 @@ type manifest struct {
 }
 
 type measurement struct {
-	Query           string          `json:"query"`
-	K               int             `json:"k"`
-	ExactIDs        []int64         `json:"exact_ids"`
-	HNSWIDs         []int64         `json:"hnsw_ids"`
-	Recall          float64         `json:"recall"`
-	ExactMedianMS   float64         `json:"exact_median_ms"`
-	HNSWMedianMS    float64         `json:"hnsw_median_ms"`
-	HNSWIndexUsed   bool            `json:"hnsw_index_used"`
-	ExactPlan       json.RawMessage `json:"exact_plan"`
-	HNSWPlan        json.RawMessage `json:"hnsw_plan"`
+	Query         string          `json:"query"`
+	K             int             `json:"k"`
+	ExactIDs      []int64         `json:"exact_ids"`
+	HNSWIDs       []int64         `json:"hnsw_ids"`
+	Recall        float64         `json:"recall"`
+	ExactMedianMS float64         `json:"exact_median_ms"`
+	HNSWMedianMS  float64         `json:"hnsw_median_ms"`
+	HNSWIndexUsed bool            `json:"hnsw_index_used"`
+	ExactPlan     json.RawMessage `json:"exact_plan"`
+	HNSWPlan      json.RawMessage `json:"hnsw_plan"`
 }
 
 type report struct {
-	FixtureVersion   string        `json:"query_fixture_version"`
-	Papers           int64         `json:"papers"`
-	EligibleVectors  int64         `json:"eligible_vectors"`
-	ModelID          string        `json:"model_id"`
-	ModelRevision    string        `json:"model_revision"`
-	TextVersion      string        `json:"text_version"`
-	PgvectorVersion  string        `json:"pgvector_version"`
-	IndexName        string        `json:"index_name"`
-	BuildOptions     []string      `json:"build_options"`
-	EFSearch         int           `json:"ef_search"`
-	Repeats          int           `json:"repeats"`
-	Measurements     []measurement `json:"measurements"`
+	FixtureVersion  string        `json:"query_fixture_version"`
+	Papers          int64         `json:"papers"`
+	EligibleVectors int64         `json:"eligible_vectors"`
+	ModelID         string        `json:"model_id"`
+	ModelRevision   string        `json:"model_revision"`
+	TextVersion     string        `json:"text_version"`
+	PgvectorVersion string        `json:"pgvector_version"`
+	IndexName       string        `json:"index_name"`
+	BuildOptions    []string      `json:"build_options"`
+	EFSearch        int           `json:"ef_search"`
+	Repeats         int           `json:"repeats"`
+	Measurements    []measurement `json:"measurements"`
 }
 
 func main() {
