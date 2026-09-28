@@ -1,0 +1,127 @@
+{
+  "version": "exact-v1",
+  "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+  "model_revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+  "text_version": "title-abstract-v1",
+  "papers": [
+    {
+      "id": 101,
+      "openalex_id": "W-exact-101",
+      "title": "Axis X first",
+      "publication_year": 2020,
+      "axis": 0,
+      "sign": 1
+    },
+    {
+      "id": 102,
+      "openalex_id": "W-exact-102",
+      "title": "Axis X second",
+      "publication_year": null,
+      "axis": 0,
+      "sign": 1
+    },
+    {
+      "id": 103,
+      "openalex_id": "W-exact-103",
+      "title": "Axis Y first",
+      "publication_year": 2021,
+      "axis": 1,
+      "sign": 1
+    },
+    {
+      "id": 104,
+      "openalex_id": "W-exact-104",
+      "title": "Axis Y second",
+      "publication_year": 2022,
+      "axis": 1,
+      "sign": 1
+    },
+    {
+      "id": 105,
+      "openalex_id": "W-exact-105",
+      "title": "Axis negative X",
+      "publication_year": 2023,
+      "axis": 0,
+      "sign": -1
+    },
+    {
+      "id": 106,
+      "openalex_id": "W-exact-106",
+      "title": "Stale model",
+      "publication_year": 2020,
+      "stale": true,
+      "axis": 0,
+      "sign": 1
+    },
+    {
+      "id": 107,
+      "openalex_id": "W-exact-107",
+      "title": "Zero vector",
+      "publication_year": 2020,
+      "axis": null,
+      "zero": true
+    },
+    {
+      "id": 108,
+      "openalex_id": "W-exact-108",
+      "title": "Missing vector",
+      "publication_year": 2020,
+      "axis": null
+    }
+  ],
+  "queries": [
+    {
+      "name": "positive-x",
+      "limit": 3,
+      "expected": [
+        {
+          "id": 101,
+          "distance": 0.0
+        },
+        {
+          "id": 102,
+          "distance": 0.0
+        },
+        {
+          "id": 103,
+          "distance": 1.0
+        }
+      ],
+      "file": "query-positive-x.json"
+    },
+    {
+      "name": "positive-y",
+      "limit": 3,
+      "expected": [
+        {
+          "id": 103,
+          "distance": 0.0
+        },
+        {
+          "id": 104,
+          "distance": 0.0
+        },
+        {
+          "id": 101,
+          "distance": 1.0
+        }
+      ],
+      "file": "query-positive-y.json"
+    },
+    {
+      "name": "negative-x",
+      "limit": 2,
+      "expected": [
+        {
+          "id": 105,
+          "distance": 0.0
+        },
+        {
+          "id": 103,
+          "distance": 1.0
+        }
+      ],
+      "file": "query-negative-x.json"
+    }
+  ]
+}

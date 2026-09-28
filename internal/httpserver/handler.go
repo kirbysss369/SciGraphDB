@@ -5,13 +5,17 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/kirbysss369/SciGraphDB/internal/search"
 )
 
 type Pinger interface {
 	Ping(context.Context) error
 }
 
-func New(pinger Pinger, pingTimeout time.Duration, logger *slog.Logger) http.Handler {
+type VectorSearchFunc func(context.Context, []float64, int) ([]search.Result, error)
+
+func New(pinger Pinger, pingTimeout time.Duration, logger *slog.Logger, exact VectorSearchFunc) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		write(w, http.StatusOK, "ok\n", logger)
@@ -26,6 +30,7 @@ func New(pinger Pinger, pingTimeout time.Duration, logger *slog.Logger) http.Han
 		}
 		write(w, http.StatusOK, "ready\n", logger)
 	})
+	mux.Handle("POST /api/v1/search/vector", NewVectorSearch(exact, logger))
 	return mux
 }
 
