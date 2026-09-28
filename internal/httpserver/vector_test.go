@@ -33,7 +33,9 @@ func TestVectorSearchRequestAndResponse(t *testing.T) {
 	if recorder.Code != http.StatusOK || calls != 1 || !strings.Contains(recorder.Body.String(), `"distance":0.25`) {
 		t.Fatalf("status=%d calls=%d body=%s", recorder.Code, calls, recorder.Body.String())
 	}
-	var response struct{ Results []search.Result `json:"results"` }
+	var response struct {
+		Results []search.Result `json:"results"`
+	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil || len(response.Results) != 1 || response.Results[0].ID != 7 {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
