@@ -1,4 +1,4 @@
-.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status
+.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status ml-sync embeddings
 
 COMPOSE := ./scripts/compose.sh
 
@@ -52,3 +52,12 @@ migrate-down:
 
 migrate-status:
 	@env -u DATABASE_URL go run ./cmd/migrate status
+
+ML_LIMIT ?= 100
+ML_BATCH_SIZE ?= 16
+
+ml-sync:
+	@uv sync --locked
+
+embeddings: up migrate ml-sync
+	@env -u DATABASE_URL uv run --locked python -m ml.embed --limit $(ML_LIMIT) --batch-size $(ML_BATCH_SIZE)

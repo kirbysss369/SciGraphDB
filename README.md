@@ -32,7 +32,7 @@ curl --max-time 5 http://127.0.0.1:8080/readyz
 
 ## Database schema
 
-With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Vector columns are not implemented yet.
+With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration and **deletes its data**. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Migration 003 adds a 384-dimensional paper vector without an ANN index.
 
 ## OpenAlex probe
 
@@ -41,3 +41,7 @@ The read-only works client can query OpenAlex without a database. For a small ke
 ## Import works
 
 After `make migrate`, run `go run ./cmd/importer --search 'graph databases' --limit 10`. The importer writes papers, topics, paper-topic scores and citations between imported papers. It retains unresolved references until their target works are imported. For 100 or more works, set `OPENALEX_API_KEY` in `.env` and increase `--limit` gradually. Optional `--from-year` and `--to-year` flags narrow the API results before applying the limit. See [importing works](docs/development.md#importing-works) for checks and rollback notes.
+
+## Paper embeddings
+
+Install [uv](https://docs.astral.sh/uv/) separately, then run `make embeddings` after importing papers. It starts PostgreSQL, applies the current migrations, installs locked Python dependencies, and scans the first 100 papers with the pinned CPU model. `make embeddings ML_LIMIT=0` scans all papers in bounded batches. Repeating the command skips unchanged vectors. See [the embedding workflow](docs/development.md#paper-embeddings) for the model, data checks, and rollback.

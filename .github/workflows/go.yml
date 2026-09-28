@@ -89,3 +89,46 @@ jobs:
       - name: Stop local database
         if: always()
         run: ./scripts/compose.sh down
+
+  python-embeddings:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_USER: scigraph
+          POSTGRES_PASSWORD: integration-only
+          POSTGRES_DB: scigraph_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scigraph -d scigraph_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://scigraph:integration-only@127.0.0.1:5432/scigraph_test?sslmode=disable
+      DATABASE_URL_TEST: postgres://scigraph:integration-only@127.0.0.1:5432/scigraph_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: '0.12.18'
+      - name: Python environment and checks
+        run: |
+          uv python install 3.12
+          uv sync --locked
+          uv run --locked ruff format --check ml
+          uv run --locked ruff check ml
+          uv run --locked python -m pytest -q -m 'not integration'
+      - name: Migrate, embed 100 CPU fixtures, and rerun
+        env:
+          RUN_MODEL_SMOKE: '1'
+        run: |
+          go run ./cmd/migrate up
+          uv run --locked python -m pytest -v -m integration
+          go run ./cmd/migrate down
+          go run ./cmd/migrate up

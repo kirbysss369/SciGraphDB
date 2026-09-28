@@ -1,6 +1,6 @@
 # Linux development
 
-This setup uses one `compose.yaml` on Ubuntu and Fedora. It requires Git, Go 1.25 or newer for the API, and a working Compose provider. Python and uv are optional until the ML phase. No desktop services are used, so Fedora Workstation with Hyprland works the same as a terminal session on another Linux desktop.
+This setup uses one `compose.yaml` on Ubuntu and Fedora. It requires Git, Go 1.25 or newer for the API, and a working Compose provider. Python 3.12 and uv are also required when running the embedding workflow; they remain optional for the Go API. No desktop services are used, so Fedora Workstation with Hyprland works the same as a terminal session on another Linux desktop.
 
 Ubuntu 25.04 compatibility is a target, but that release is past its support period. Use a supported Ubuntu release for a machine exposed to untrusted networks. Install Docker Engine and the Docker Compose plugin through your chosen package source, or use Podman; this repository does not install system packages. Ensure your user can invoke the selected provider.
 
@@ -74,7 +74,7 @@ make migrate
 make migrate-status
 ```
 
-`make migrate` applies pending SQL files in a transaction. `make migrate-down` rolls back one version: version 002 drops the unresolved citation queue, while version 001 drops the core tables and their data and removes the `vector` extension. PostgreSQL refuses to drop the extension if another object depends on it. The version ledger (`schema_migrations`) remains after rollback. Applied migration checksums are verified before subsequent changes, so edit an applied SQL file only by creating a new migration instead.
+`make migrate` applies pending SQL files in a transaction. `make migrate-down` rolls back one version: version 003 removes the embedding column and all stored vectors, version 002 drops the unresolved citation queue, and version 001 drops the core tables and their data and removes the `vector` extension. PostgreSQL refuses to drop the extension if another object depends on it. The version ledger (`schema_migrations`) remains after rollback. Applied migration checksums are verified before subsequent changes, so edit an applied SQL file only by creating a new migration instead.
 
 For a migration cycle on a **disposable database**:
 
@@ -115,7 +115,7 @@ The public probe above is optional. OpenAlex documents [authentication and rate 
 
 ## Importing works
 
-Apply both migrations (`make migrate`), then run a small import:
+Apply the migrations (`make migrate`), then run a small import:
 
 ```bash
 go run ./cmd/importer --search 'graph databases' --from-year 2020 --to-year 2024 --limit 10
@@ -144,3 +144,37 @@ Repeat the same import and compare table counts. Citation count may be low in a 
 ```bash
 go test -tags integration ./internal/importer -v
 ```
+
+## Paper embeddings
+
+The Python workflow uses uv and Python 3.12 (`.python-version`, `pyproject.toml`, `uv.lock`). The model is [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, Apache-2.0, with 384 output dimensions. Its model card describes truncation after 256 word pieces. The workflow uses CPU, including on machines with an Nvidia GPU. The lockfile selects CPU-only PyTorch wheels for Linux. GPU execution is optional and requires a separately managed CUDA-enabled PyTorch environment; the locked uv commands use CPU. Model weights are downloaded to the user's standard Hugging Face cache on first run and are never stored in the repository. This pretrained model produces embeddings only; this workflow does not train a model or create an ANN index.
+
+Text version `title-abstract-v1` strips leading/trailing whitespace, collapses internal whitespace to single spaces, and constructs `Title: <title>` followed by `\nAbstract: <abstract>` when the abstract is nonempty. Papers with fewer than three combined words are skipped. Titles alone can be embedded, including papers with no abstract. Inference normalizes vectors to unit length; the model's tokenizer truncates longer text. The SHA-256 of the constructed UTF-8 text, model ID, exact revision, text version, and timestamp are stored beside each vector. Migration 003 also clears a vector whenever an imported title or abstract changes. Changes to citation count or other metadata leave it intact. Bump `TEXT_VERSION` in `ml/embed.py` whenever preprocessing semantics change; the next scan refreshes stale versions. Changing models requires a new migration if the dimension changes.
+
+After importing works, run:
+
+```bash
+make ml-sync
+make embeddings                     # starts DB, migrates, scans first 100 IDs
+make embeddings ML_LIMIT=0          # scan all IDs in batches
+make embeddings ML_LIMIT=100 ML_BATCH_SIZE=16
+```
+
+Each batch is at most 100 papers (`16` by default), and its writes commit together. The scanner walks paper IDs in order, skips matching hashes and versions, and starts from the beginning on the next invocation. This makes interruption safe: previously committed rows are skipped on restart. The write checks that title and abstract still match the text read; a concurrent import leaves the changed row for a later run. `ML_LIMIT` counts **papers scanned**, including unchanged and insufficient text, and `0` scans all papers. The summary prints scanned, embedded, unchanged, insufficient, and conflicted counts; no API calls are made.
+
+In `make db-shell`, inspect the first 100 papers and their status:
+
+```sql
+WITH sample AS (SELECT * FROM papers ORDER BY id LIMIT 100)
+SELECT count(*) AS papers,
+       count(*) FILTER (WHERE embedding IS NULL) AS null_vectors,
+       count(*) FILTER (WHERE embedding IS NOT NULL AND vector_dims(embedding) <> 384) AS wrong_dimensions,
+       count(*) FILTER (WHERE embedding IS NOT NULL AND (
+           embedding_model <> 'sentence-transformers/all-MiniLM-L6-v2'
+           OR embedding_revision <> '1110a243fdf4706b3f48f1d95db1a4f5529b4d41'
+           OR embedding_text_version <> 'title-abstract-v1'
+       )) AS stale_version
+FROM sample;
+```
+
+Run `make embeddings` twice. The second summary should show `embedded=0` when source text and versions have not changed. `null_vectors` may reflect titles too short to embed; these remain null. To run database integration tests, use a **disposable database** with migration 003 applied and `DATABASE_URL_TEST` set, then run `uv run --locked python -m pytest -m integration -q`. The fixture test inserts 100 synthetic works, interrupts after one batch, resumes, checks 384 dimensions, verifies version and source invalidation, reruns unchanged, and deletes its fixture. `RUN_MODEL_SMOKE=1` additionally runs the pinned model on 100 synthetic works using CPU, checks dimensions, null/stale counts, and idempotence; CI runs this check. No automated test alters your imported OpenAlex dataset. `make migrate-down` removes migration 003 and permanently discards the vectors; reapply it and rerun embeddings to regenerate them.
