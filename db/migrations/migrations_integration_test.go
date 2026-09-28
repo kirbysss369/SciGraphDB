@@ -38,13 +38,13 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 2 || before[0].Applied || before[1].Applied {
+	if len(before) != 3 || before[0].Applied || before[1].Applied || before[2].Applied {
 		t.Fatal("integration test requires a database without applied migrations")
 	}
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
-		for range 2 {
+		for range 3 {
 			if _, err := Down(cleanupCtx, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -52,7 +52,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	}()
 
 	changed, err := Up(ctx, conn)
-	if err != nil || len(changed) != 2 {
+	if err != nil || len(changed) != 3 {
 		t.Fatalf("first up: changed=%d err=%v", len(changed), err)
 	}
 	if changed, err := Up(ctx, conn); err != nil || len(changed) != 0 {
@@ -60,7 +60,18 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	}
 	verifySchema(t, ctx, conn, true)
 	verifyConstraints(t, ctx, conn)
+	verifyEmbeddingInvalidation(t, ctx, conn)
 
+	if _, err := Down(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	var embeddingGone bool
+	if err := conn.QueryRow(ctx, `SELECT NOT EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'papers' AND column_name = 'embedding'
+	)`).Scan(&embeddingGone); err != nil || !embeddingGone {
+		t.Fatalf("embedding rollback: gone=%v err=%v", embeddingGone, err)
+	}
 	if _, err := Down(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
@@ -74,10 +85,54 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	verifySchema(t, ctx, conn, false)
 
 	changed, err = Up(ctx, conn)
-	if err != nil || len(changed) != 2 {
+	if err != nil || len(changed) != 3 {
 		t.Fatalf("second up: changed=%d err=%v", len(changed), err)
 	}
 	verifySchema(t, ctx, conn, true)
+}
+
+func verifyEmbeddingInvalidation(t *testing.T, ctx context.Context, conn *pgx.Conn) {
+	t.Helper()
+	_, err := conn.Exec(ctx, `INSERT INTO public.papers (openalex_id, title, abstract)
+		VALUES ('W-embedding-migration', 'A useful research title', 'First abstract')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = conn.Exec(ctx, `UPDATE public.papers SET
+		embedding = ('[' || repeat('0.1,', 383) || '0.1]')::public.vector,
+		embedding_model = 'model', embedding_revision = 'revision',
+		embedding_text_version = 'v1', embedding_text_sha256 = repeat('a', 64),
+		embedded_at = now()
+		WHERE openalex_id = 'W-embedding-migration'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dims int
+	if err := conn.QueryRow(ctx, `SELECT vector_dims(embedding) FROM public.papers
+		WHERE openalex_id = 'W-embedding-migration'`).Scan(&dims); err != nil || dims != 384 {
+		t.Fatalf("embedding dimensions=%d err=%v", dims, err)
+	}
+	_, err = conn.Exec(ctx, `UPDATE public.papers SET cited_by_count = 1
+		WHERE openalex_id = 'W-embedding-migration'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var preserved bool
+	if err := conn.QueryRow(ctx, `SELECT embedding IS NOT NULL FROM public.papers
+		WHERE openalex_id = 'W-embedding-migration'`).Scan(&preserved); err != nil || !preserved {
+		t.Fatalf("metadata-only update invalidated vector: %v, %v", preserved, err)
+	}
+	_, err = conn.Exec(ctx, `UPDATE public.papers SET abstract = 'Changed abstract'
+		WHERE openalex_id = 'W-embedding-migration'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cleared bool
+	if err := conn.QueryRow(ctx, `SELECT embedding IS NULL AND embedding_model IS NULL
+		AND embedding_text_sha256 IS NULL FROM public.papers
+		WHERE openalex_id = 'W-embedding-migration'`).Scan(&cleared); err != nil || !cleared {
+		t.Fatalf("source update did not invalidate vector: %v, %v", cleared, err)
+	}
 }
 
 func verifySchema(t *testing.T, ctx context.Context, conn *pgx.Conn, expected bool) {
