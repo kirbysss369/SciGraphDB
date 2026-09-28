@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import TYPE_CHECKING, Protocol
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 from psycopg import connect
 from psycopg.conninfo import make_conninfo
 
@@ -90,20 +90,25 @@ def next_checkpoint(last_id: int, papers: list[Paper]) -> int:
 
 
 def database_url() -> str:
-    load_dotenv(override=False, interpolate=False)
+    values = dotenv_values(".env", interpolate=False)
     if url := os.getenv("DATABASE_URL"):
         return url
-    password = os.getenv("POSTGRES_PASSWORD")
+
+    # A legacy DATABASE_URL inside .env must not override local Compose settings.
+    def local(name: str) -> str | None:
+        return os.environ[name] if name in os.environ else values.get(name)
+
+    password = local("POSTGRES_PASSWORD")
     if not password:
         raise ValueError("set POSTGRES_PASSWORD in .env or provide DATABASE_URL")
-    port = os.getenv("PG_PORT") or "5432"
+    port = local("PG_PORT") or "5432"
     if not port.isdecimal() or not 1 <= int(port) <= 65535:
         raise ValueError("PG_PORT must be between 1 and 65535")
     return make_conninfo(
         host="127.0.0.1",
         port=port,
         dbname="scigraph",
-        user=os.getenv("POSTGRES_USER") or "scigraph",
+        user=local("POSTGRES_USER") or "scigraph",
         password=password,
         sslmode="disable",
         connect_timeout=5,
