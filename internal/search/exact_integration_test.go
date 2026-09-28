@@ -206,9 +206,9 @@ func TestExactTopKBaseline(t *testing.T) {
 		}
 	}
 	var report struct {
-		Papers          int `json:"papers"`
-		EligibleVectors int `json:"eligible_vectors"`
-		EFSearch        int `json:"ef_search"`
+		Papers          int      `json:"papers"`
+		EligibleVectors int      `json:"eligible_vectors"`
+		EFSearch        int      `json:"ef_search"`
 		BuildOptions    []string `json:"build_options"`
 		Measurements    []struct {
 			Query         string  `json:"query"`
