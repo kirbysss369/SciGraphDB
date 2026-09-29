@@ -33,6 +33,7 @@ var ordered = []Migration{
 	{4, "paper_hnsw", "004_paper_hnsw.up.sql", "004_paper_hnsw.down.sql"},
 	{5, "bench_runs", "005_bench_runs.up.sql", "005_bench_runs.down.sql"},
 	{6, "filtered_bench", "006_filtered_bench.up.sql", "006_filtered_bench.down.sql"},
+	{7, "openalex_bulk", "007_openalex_bulk.up.sql", "007_openalex_bulk.down.sql"},
 }
 
 const versionTable = `CREATE TABLE IF NOT EXISTS public.schema_migrations (

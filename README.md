@@ -42,6 +42,8 @@ The read-only works client can query OpenAlex without a database. For a small ke
 
 After `make migrate`, run `go run ./cmd/importer --search 'graph databases' --limit 10`. The importer writes papers, topics, paper-topic scores and citations between imported papers. It retains unresolved references until their target works are imported. For 100 or more works, set `OPENALEX_API_KEY` in `.env` and increase `--limit` gradually. Optional `--from-year` and `--to-year` flags narrow the API results before applying the limit. See [importing works](docs/development.md#importing-works) for checks and rollback notes.
 
+For a larger research corpus, `go run ./cmd/import-bulk --job cs-articles-v1 --filter 'primary_topic.field.id:17,type:article,has_abstract:true' --limit 200000` saves each 100-work page and its cursor atomically in PostgreSQL. Rerun the same command to resume, or raise `--limit` to 500000 to extend the same job. The source filter and actual counts are recorded; see [bulk imports](docs/development.md#bulk-openalex-imports) before starting a long run.
+
 ## Paper embeddings
 
 Install [uv](https://docs.astral.sh/uv/) separately, then run `make embeddings` after importing papers. It starts PostgreSQL, applies the current migrations, installs locked Python dependencies, and scans the first 100 papers with the pinned CPU model. `make embeddings ML_LIMIT=0` scans all papers in bounded batches. Repeating the command skips unchanged vectors. See [the embedding workflow](docs/development.md#paper-embeddings) for the model, data checks, and rollback.

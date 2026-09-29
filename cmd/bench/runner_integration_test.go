@@ -35,7 +35,7 @@ func TestRunnerPersistenceSmoke(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 	states, err := migrations.Status(ctx, conn)
-	if err != nil || len(states) != 6 {
+	if err != nil || len(states) != 7 {
 		t.Fatalf("migration status: %v, %v", states, err)
 	}
 	for _, state := range states {
@@ -49,7 +49,7 @@ func TestRunnerPersistenceSmoke(t *testing.T) {
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-		for range 6 {
+		for range 7 {
 			if _, err := migrations.Down(cleanup, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}

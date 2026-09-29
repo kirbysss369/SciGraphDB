@@ -57,6 +57,8 @@ jobs:
         run: go test -tags integration ./db/migrations -v
       - name: Importer fixture cycle
         run: go test -tags integration ./internal/importer -v
+      - name: Bounded bulk import and checkpoint resume
+        run: go test -tags integration ./cmd/import-bulk -v
       - name: End-to-end migration import and API
         run: go test -tags integration ./internal/app -v
       - name: Exact and HNSW Top-K, recall, and JSON plans
