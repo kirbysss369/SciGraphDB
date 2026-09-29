@@ -62,7 +62,5 @@ ml-sync:
 embeddings: up migrate ml-sync
 	@env -u DATABASE_URL uv run --locked python -m ml.embed --limit $(ML_LIMIT) --batch-size $(ML_BATCH_SIZE)
 
-BENCH_EF_SEARCH ?= 80
-
 bench-smoke:
-	@env -u DATABASE_URL go run ./cmd/bench --repeats 1 --ef-search $(BENCH_EF_SEARCH)
+	@env -u DATABASE_URL go run ./cmd/bench --config experiments/configs/smoke-v1.json

@@ -38,13 +38,13 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 4 || before[0].Applied || before[1].Applied || before[2].Applied || before[3].Applied {
+	if len(before) != 5 || before[0].Applied || before[1].Applied || before[2].Applied || before[3].Applied || before[4].Applied {
 		t.Fatal("integration test requires a database without applied migrations")
 	}
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
-		for range 4 {
+		for range 5 {
 			if _, err := Down(cleanupCtx, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -52,7 +52,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	}()
 
 	changed, err := Up(ctx, conn)
-	if err != nil || len(changed) != 4 {
+	if err != nil || len(changed) != 5 {
 		t.Fatalf("first up: changed=%d err=%v", len(changed), err)
 	}
 	if changed, err := Up(ctx, conn); err != nil || len(changed) != 0 {
@@ -69,6 +69,13 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 		t.Fatalf("HNSW build options: %v", indexOptions)
 	}
 
+	if _, err := Down(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	var benchGone bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.bench_runs') IS NULL`).Scan(&benchGone); err != nil || !benchGone {
+		t.Fatalf("bench rollback: gone=%v err=%v", benchGone, err)
+	}
 	if _, err := Down(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +106,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	verifySchema(t, ctx, conn, false)
 
 	changed, err = Up(ctx, conn)
-	if err != nil || len(changed) != 4 {
+	if err != nil || len(changed) != 5 {
 		t.Fatalf("second up: changed=%d err=%v", len(changed), err)
 	}
 	verifySchema(t, ctx, conn, true)
