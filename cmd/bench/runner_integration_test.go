@@ -35,7 +35,7 @@ func TestRunnerPersistenceSmoke(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 	states, err := migrations.Status(ctx, conn)
-	if err != nil || len(states) != 5 {
+	if err != nil || len(states) != 6 {
 		t.Fatalf("migration status: %v, %v", states, err)
 	}
 	for _, state := range states {
@@ -49,7 +49,7 @@ func TestRunnerPersistenceSmoke(t *testing.T) {
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-		for range 5 {
+		for range 6 {
 			if _, err := migrations.Down(cleanup, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -162,5 +162,116 @@ func TestRunnerPersistenceSmoke(t *testing.T) {
 	csvRows, err := csv.NewReader(csvFile).ReadAll()
 	if err != nil || len(csvRows) != 37 {
 		t.Fatalf("CSV rows=%d err=%v", len(csvRows), err)
+	}
+	indexCmd := exec.CommandContext(ctx, "go", "run", "./cmd/bench-index", "--lists", "3", "build")
+	indexCmd.Dir = filepath.Join("..", "..")
+	indexCmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	if output, err := indexCmd.CombinedOutput(); err == nil || !strings.Contains(string(output), "need at least") {
+		t.Fatalf("small corpus accepted for IVFFlat: %v %s", err, output)
+	}
+	_, err = conn.Exec(ctx, `INSERT INTO public.papers
+		(openalex_id,title,publication_year,embedding,embedding_model,embedding_revision,
+		 embedding_text_version,embedding_text_sha256,embedded_at)
+		SELECT 'W-filter-'||n, 'Filtered fixture',
+		CASE WHEN n<=1500 THEN 2000 WHEN n<=2250 THEN 2001
+		     WHEN n<=2700 THEN 2002 WHEN n<=2850 THEN 2003
+		     WHEN n<=2970 THEN 2004 ELSE 2005 END,
+		('[' || ((n%101)+1)::text || ',' || (((n*17)%103)+1)::text || ',' || repeat('0,',381) || '1]')::public.vector,
+		$1,$2,$3,repeat('b',64),now()
+		FROM generate_series(1,3000) AS n`,
+		"sentence-transformers/all-MiniLM-L6-v2", "1110a243fdf4706b3f48f1d95db1a4f5529b4d41", "title-abstract-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexCmd = exec.CommandContext(ctx, "go", "run", "./cmd/bench-index", "--lists", "3", "build")
+	indexCmd.Dir = filepath.Join("..", "..")
+	indexCmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	if output, err := indexCmd.CombinedOutput(); err != nil {
+		t.Fatalf("IVFFlat build: %v %s", err, output)
+	}
+	filteredCmd := exec.CommandContext(ctx, "go", "run", "./cmd/bench", "--config", "experiments/configs/filtered-smoke-v2.json", "--out-dir", outDir)
+	filteredCmd.Dir = filepath.Join("..", "..")
+	filteredCmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	filteredOutput, err := filteredCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("filtered cmd/bench: %v %s", err, filteredOutput)
+	}
+	var filteredSummary struct {
+		RunID      string `json:"run_id"`
+		QueryCount int    `json:"query_count"`
+		Skipped    int    `json:"skipped_filters"`
+	}
+	if err := json.Unmarshal(filteredOutput, &filteredSummary); err != nil {
+		t.Fatal(err)
+	}
+	if filteredSummary.QueryCount != 108 || filteredSummary.Skipped != 0 {
+		t.Fatalf("filtered summary: %+v", filteredSummary)
+	}
+	filteredJSON, err := os.ReadFile(filepath.Join(outDir, filteredSummary.RunID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("FILTERED_BENCH_REPORT_PATH"); path != "" {
+		if err := os.WriteFile(path, filteredJSON, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var filtered filteredReport
+	if err := json.Unmarshal(filteredJSON, &filtered); err != nil {
+		t.Fatal(err)
+	}
+	if filtered.EligibleVectors != 3040 || len(filtered.Queries) != 108 || filtered.IVFBuildMS <= 0 {
+		t.Fatalf("filtered run metadata: eligible=%d queries=%d build_ms=%f", filtered.EligibleVectors, len(filtered.Queries), filtered.IVFBuildMS)
+	}
+	var hnswPlans, ivfPlans int
+	for _, q := range filtered.Queries {
+		if len(q.Samples) != 3 || q.Filter.Matching <= 0 || q.Filter.Actual != float64(q.Filter.Matching)/3040 {
+			t.Fatalf("invalid sample or selectivity: %+v", q.Filter)
+		}
+		if filtered.PlanMode != "planner" || len(q.PostgresSettings) == 0 || q.P50MS < 0 || q.P95MS < q.P50MS || q.P99MS < q.P95MS {
+			t.Fatalf("invalid plan settings or latency summary: %+v", q)
+		}
+		var decoded any
+		if err := json.Unmarshal(q.Plan, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := json.Marshal(decoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		redacted, err := redactPlan(q.Plan)
+		if err != nil || !bytes.Equal(canonical, redacted) {
+			t.Fatal("filtered plan contains a raw query vector")
+		}
+		if q.Method == "hnsw" && strings.Contains(q.PlanIndexName, "papers_embedding_hnsw_cosine_idx") {
+			hnswPlans++
+		}
+		if q.Method == "ivfflat" && strings.Contains(q.PlanIndexName, "papers_embedding_ivfflat_cosine_idx") {
+			ivfPlans++
+		}
+		for _, s := range q.Samples {
+			if s.ReturnedCount < len(s.ResultIDs) || (s.ReturnedCount < q.K && s.ReturnedCount < min(q.K, int(q.Filter.Matching)) && q.TooFewSamples == 0) {
+				t.Fatal("short ANN result was not accounted for")
+			}
+		}
+	}
+	if hnswPlans == 0 || ivfPlans == 0 {
+		t.Fatalf("expected both ANN indexes on the 3040-row fixture: hnsw=%d ivfflat=%d", hnswPlans, ivfPlans)
+	}
+	var stored, storedSamples int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.bench_filtered_queries WHERE run_id=$1`, filteredSummary.RunID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.bench_filtered_samples WHERE run_id=$1`, filteredSummary.RunID).Scan(&storedSamples); err != nil {
+		t.Fatal(err)
+	}
+	if stored != 108 || storedSamples != 324 {
+		t.Fatalf("stored rows: queries=%d samples=%d", stored, storedSamples)
+	}
+	indexCmd = exec.CommandContext(ctx, "go", "run", "./cmd/bench-index", "drop")
+	indexCmd.Dir = filepath.Join("..", "..")
+	indexCmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
+	if output, err := indexCmd.CombinedOutput(); err != nil {
+		t.Fatalf("IVFFlat drop: %v %s", err, output)
 	}
 }

@@ -63,7 +63,9 @@ jobs:
         env:
           BENCH_REPORT_PATH: /tmp/scigraph-hnsw-report.json
         run: go test -tags integration ./internal/search -v
-      - name: Experiment runner persistence and cmd/bench smoke
+      - name: Experiment runner persistence and filtered ANN smoke
+        env:
+          FILTERED_BENCH_REPORT_PATH: /tmp/scigraph-filtered-report.json
         run: go test -tags integration ./cmd/bench -v
       - name: Save HNSW research report
         if: always()
@@ -71,6 +73,13 @@ jobs:
         with:
           name: hnsw-synthetic-bench
           path: /tmp/scigraph-hnsw-report.json
+          if-no-files-found: ignore
+      - name: Save filtered ANN research report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: filtered-ann-synthetic-bench
+          path: /tmp/scigraph-filtered-report.json
           if-no-files-found: ignore
       - name: CLI up down up
         run: |

@@ -1,4 +1,4 @@
-// bench runs a versioned fixed-query exact/HNSW experiment and persists it.
+// bench runs versioned fixed-query exact/HNSW/IVFFlat experiments.
 package main
 
 import (
@@ -30,6 +30,13 @@ func run(args []string) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("usage: bench [--config FILE] [--out-dir DIR]")
+	}
+	version, err := configVersion(*configPath)
+	if err != nil {
+		return err
+	}
+	if version == 2 {
+		return runFilteredCLI(*configPath, *outDir)
 	}
 	cfg, configSHA, err := readConfig(*configPath)
 	if err != nil {

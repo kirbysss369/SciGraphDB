@@ -218,3 +218,30 @@ go run ./cmd/bench --config experiments/configs/hnsw-cosine-v1.json
 Each run records experiment/run/query IDs, config and query hashes, git commit and tracked dirty state, PostgreSQL and pgvector versions, a named dataset snapshot, SHA-256 digest of ordered eligible row IDs/source hashes/vector hashes, total and eligible paper counts, model and preprocessing versions, index options, query method and parameters, timestamp and sanitized query plans. Raw vectors and credentials are never exported. The index was built by migration 004 before the run, so `index_build_ms` is null and its build note distinguishes this from query latency. Exact ground truth uses the materialized exact query, and an exact plan containing HNSW fails. The runner records whether HNSW was selected. Set `require_hnsw_index` in a config to fail on sequential HNSW plans; inspect query shape, `ANALYZE` statistics, and dataset size first. It never forces a plan.
 
 The small `smoke-v1.json` config runs one warm-up and three measured passes. On an empty database import papers and embed first. Its results, and the CI disposable synthetic fixture, do not establish a performance improvement for real OpenAlex works or a 100-row sample. The older integration test grows a disposable fixture to 3,005 eligible synthetic vectors before requiring an index plan and saves a separate `hnsw-synthetic-bench` artifact. The fixed vectors' expected Top-K IDs in `baseline.json` apply only to the eight-row fixture. Use an empty disposable database with `DATABASE_URL_TEST` for the runner persistence smoke: `go test -tags integration ./cmd/bench -v`.
+
+## Filtered ANN research experiment
+
+Migration 006 adds a reversible result schema and the `bench_ivf_vector` identity expression. It does **not** build IVFFlat on an empty or 100-row table. The separate index command checks that at least `max(2000, 500 × lists)` eligible, nonzero vectors exist before training. pgvector 0.8.6 recommends building IVFFlat only after loading data, starting around `rows / 1000` lists for up to one million rows, and choosing probes around the square root of lists. See the [pinned IVFFlat, filtering and iterative-scan documentation](https://github.com/pgvector/pgvector/blob/v0.8.6/README.md#ivfflat). Query probes must be less than lists here: pgvector notes that at probes equal to lists the planner does not use the index. This floor is a research guard, not evidence that 2,000 vectors make a meaningful performance benchmark.
+
+Build on a disposable or local research dataset after embedding enough works:
+
+```bash
+make up
+make migrate
+make embeddings ML_LIMIT=0
+go run ./cmd/bench-index --lists 3 build
+go run ./cmd/bench-index status
+go run ./cmd/bench --config experiments/configs/filtered-v2.json
+# To remove the research index without removing paper vectors:
+go run ./cmd/bench-index drop
+```
+
+Set `ivfflat_lists` in the JSON config to the index's actual `lists` value; `ivfflat_probes` must be below lists. `ivfflat_max_probes` and `hnsw_ef_search` are local query settings. In pgvector 0.8.6, `hnsw_iterative_scan` accepts `off`, `strict_order` or `relaxed_order`; `ivfflat_iterative_scan` accepts only `off` or `relaxed_order`. The sample config uses strict HNSW and relaxed IVFFlat, with an outer sort by distance and ID. `bench-index build` records training corpus hash/size, PostgreSQL/pgvector versions, lists, maintenance settings and index build milliseconds outside query timings. A changed corpus requires rebuilding the index before a filtered run. `bench-index drop` retains build history; rolling back migration 006 drops the IVFFlat index and filtered result tables.
+
+The runner uses the same pinned queries at K=10 and K=20 for exact, HNSW and IVFFlat. It looks for `publication_year >= cutoff` values near the target 100%, 50%, 25%, 10%, 5% and 1% of **eligible vectors**. A target is skipped with a reason when distinct years or at least 20 matching rows are unavailable. The recorded matching count and actual selectivity are measured, not taken from the target. Null years count toward the unfiltered corpus but do not match a year cutoff. Exact search materializes the filtered set before sorting, so it is ground truth even when both ANN indexes exist.
+
+pgvector applies the year filter after an ANN index scan. `strict_order` iterative scanning asks the index for more candidates up to its configured limit; it can still return fewer than K. The report stores every measured result count and Recall@K, a count range and the number of short samples, plus p50/p95/p99, PostgreSQL settings and redacted `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for each method, filter and query. Warm-up, plans and IVFFlat training are outside measured latency. The JSON/CSV files are written to ignored `experiments/results/` and the same results to the migration 006 tables.
+
+Both ANN access paths use exactly the stored vector. The IVFFlat index uses a non-inlined identity expression to keep it distinct from the existing HNSW index; the function call adds overhead to the IVFFlat query and is part of its measured latency. PostgreSQL chooses between the eligible index and a sequential plan. `plan_mode=planner` and `plan_index_name` show what actually executed; a sequential plan is not described as an IVFFlat or HNSW index performance result. No index is forced in this experiment. A future forced-plan comparison must have its own clearly labeled config and report.
+
+For the disposable smoke with 3,040 synthetic eligible vectors in six year strata, run `DATABASE_URL_TEST=... go test -tags integration ./cmd/bench -run TestRunnerPersistenceSmoke -v`. It verifies the minimum-data guard, builds/drops IVFFlat, executes the fixed filters, exports results and checks database persistence. The smoke config is `experiments/configs/filtered-smoke-v2.json`. Its three measured samples and synthetic vectors are for wiring and correctness checks; they cannot support latency or speed claims for a real corpus, especially a 100-row sample.

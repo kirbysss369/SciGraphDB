@@ -38,7 +38,7 @@ func TestMigrateImportAndServe(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 	states, err := migrations.Status(ctx, conn)
-	if err != nil || len(states) != 5 || states[0].Applied || states[1].Applied || states[2].Applied || states[3].Applied || states[4].Applied {
+	if err != nil || len(states) != 6 || states[0].Applied || states[1].Applied || states[2].Applied || states[3].Applied || states[4].Applied || states[5].Applied {
 		t.Fatalf("requires an unmigrated disposable database: states=%v err=%v", states, err)
 	}
 	if _, err := migrations.Up(ctx, conn); err != nil {
@@ -47,7 +47,7 @@ func TestMigrateImportAndServe(t *testing.T) {
 	defer func() {
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-		for range 5 {
+		for range 6 {
 			if _, err := migrations.Down(cleanupCtx, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}

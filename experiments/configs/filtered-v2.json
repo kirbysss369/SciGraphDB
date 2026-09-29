@@ -1,0 +1,17 @@
+{
+  "schema_version": 2,
+  "experiment_id": "filtered-ann-strict-v2",
+  "dataset_snapshot": "local-paper-embeddings-v2",
+  "query_set": "experiments/exact_v1/baseline.json",
+  "seed": 20260929,
+  "k": [10, 20],
+  "target_selectivity_pct": [100, 50, 25, 10, 5, 1],
+  "warmup_iterations": 2,
+  "measured_iterations": 10,
+  "ivfflat_lists": 3,
+  "ivfflat_probes": 1,
+  "ivfflat_max_probes": 3,
+  "hnsw_ef_search": 80,
+  "hnsw_iterative_scan": "strict_order",
+  "ivfflat_iterative_scan": "relaxed_order"
+}
