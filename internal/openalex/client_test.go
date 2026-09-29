@@ -79,6 +79,71 @@ func TestSearchCursorPages(t *testing.T) {
 	}
 }
 
+func TestStreamFilteredResumeAndLimit(t *testing.T) {
+	var calls atomic.Int32
+	client, closeServer := fixtureClient(t, func(w http.ResponseWriter, r *http.Request) {
+		call := calls.Add(1)
+		if r.URL.Query().Get("filter") != "type:article,has_abstract:true" || r.URL.Query().Has("search") {
+			t.Errorf("unexpected filter request: %s", r.URL.RawQuery)
+		}
+		if call == 1 {
+			if r.URL.Query().Get("cursor") != "*" || r.URL.Query().Get("per_page") != "100" {
+				t.Errorf("first page: %s", r.URL.RawQuery)
+			}
+			works := make([]map[string]string, 100)
+			for i := range works {
+				works[i] = map[string]string{"id": fmt.Sprint(i), "display_name": "Paper"}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"meta": map[string]any{"next_cursor": "second"}, "results": works})
+			return
+		}
+		if r.URL.Query().Get("cursor") != "second" || r.URL.Query().Get("per_page") != "1" {
+			t.Errorf("resumed page: %s", r.URL.RawQuery)
+		}
+		fmt.Fprint(w, `{"meta":{"next_cursor":"third"},"results":[{"id":"last","display_name":"Last"}]}`)
+	}, "private-key", time.Second)
+	defer closeServer()
+	var saved string
+	if err := client.StreamFiltered(context.Background(), "type:article,has_abstract:true", "*", 100,
+		func(works []Work, next string, finished bool) error {
+			if len(works) != 100 || finished || next != "second" {
+				t.Fatalf("first checkpoint: len=%d next=%q finished=%t", len(works), next, finished)
+			}
+			saved = next
+			return nil
+		}); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("fetched beyond limit: %d calls", calls.Load())
+	}
+	if err := client.StreamFiltered(context.Background(), "type:article,has_abstract:true", saved, 1,
+		func(works []Work, next string, finished bool) error {
+			if len(works) != 1 || next != "third" || finished {
+				t.Fatalf("second checkpoint: len=%d next=%q finished=%t", len(works), next, finished)
+			}
+			return nil
+		}); err != nil || calls.Load() != 2 {
+		t.Fatalf("resume: calls=%d err=%v", calls.Load(), err)
+	}
+}
+
+func TestStreamFilteredRejectsInvalidInputs(t *testing.T) {
+	client, closeServer := fixtureClient(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("invalid input must not reach the API")
+	}, "", time.Second)
+	defer closeServer()
+	for _, filter := range []string{"", "type:article\napi_key=secret"} {
+		if err := client.StreamFiltered(context.Background(), filter, "*", 1, func([]Work, string, bool) error { return nil }); err == nil {
+			t.Fatalf("accepted filter %q", filter)
+		}
+	}
+	if err := client.StreamFiltered(context.Background(), "type:article", "*", 500001,
+		func([]Work, string, bool) error { return nil }); err == nil {
+		t.Fatal("accepted unbounded import")
+	}
+}
+
 func TestSearchWorksYearFilters(t *testing.T) {
 	client, closeServer := fixtureClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("filter"); got != "from_publication_date:2020-01-01,to_publication_date:2022-12-31" {

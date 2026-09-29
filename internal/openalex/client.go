@@ -54,7 +54,7 @@ func (c *Client) Search(ctx context.Context, search string, limit int) ([]Work, 
 }
 
 // SearchWorks applies year filters at the API before the result limit. It
-// never writes to the database; bulk exports belong in the OpenAlex snapshot.
+// never writes to the database; larger API imports use StreamFiltered.
 func (c *Client) SearchWorks(ctx context.Context, query Query) ([]Work, error) {
 	if strings.TrimSpace(query.Search) == "" {
 		return nil, errors.New("OpenAlex search must not be empty")
@@ -108,11 +108,63 @@ func (c *Client) SearchWorks(ctx context.Context, query Query) ([]Work, error) {
 	return works, nil
 }
 
+// StreamFiltered visits at most limit works in pages of 100. The callback must
+// durably store the page and its next cursor before it returns. A resumed call
+// passes the last committed cursor and the remaining limit.
+func (c *Client) StreamFiltered(ctx context.Context, filter, cursor string, limit int, visit func([]Work, string, bool) error) error {
+	if strings.TrimSpace(filter) == "" || len(filter) > 1024 || strings.ContainsAny(filter, "\r\n") {
+		return errors.New("OpenAlex filter must be a nonempty single line of at most 1024 bytes")
+	}
+	if cursor == "" || limit < 1 || limit > 500000 || visit == nil {
+		return errors.New("invalid bulk cursor, limit, or page callback")
+	}
+	seen := make(map[string]bool)
+	fetched := 0
+	for fetched < limit {
+		if seen[cursor] {
+			return errors.New("OpenAlex repeated a pagination cursor")
+		}
+		seen[cursor] = true
+		pageSize := min(limit-fetched, maxPageSize)
+		page, err := c.fetchPage(ctx, "", filter, cursor, pageSize)
+		if err != nil {
+			return err
+		}
+		if len(page.Results) > pageSize {
+			return errors.New("OpenAlex returned more works than requested")
+		}
+		works := make([]Work, 0, len(page.Results))
+		for _, raw := range page.Results {
+			work, err := raw.work()
+			if err != nil {
+				return err
+			}
+			works = append(works, work)
+		}
+		fetched += len(works)
+		finished := len(works) == 0 || page.Meta.NextCursor == nil || *page.Meta.NextCursor == ""
+		next := ""
+		if !finished {
+			next = *page.Meta.NextCursor
+		}
+		if err := visit(works, next, finished); err != nil {
+			return err
+		}
+		if finished {
+			return nil
+		}
+		cursor = next
+	}
+	return nil
+}
+
 func (c *Client) fetchPage(ctx context.Context, search, filter, cursor string, pageSize int) (responsePage, error) {
 	u, _ := url.Parse(c.config.BaseURL)
 	u.Path = "/works"
 	query := u.Query()
-	query.Set("search", search)
+	if search != "" {
+		query.Set("search", search)
+	}
 	if filter != "" {
 		query.Set("filter", filter)
 	}

@@ -88,6 +88,44 @@ func Run(ctx context.Context, source Fetcher, pool *pgxpool.Pool, query openalex
 	return stats, nil
 }
 
+// ImportPage commits the page and its cursor checkpoint in one transaction.
+// Empty or invalid pages still advance the checkpoint, so a retry never loops
+// forever on an unimportable OpenAlex work.
+func ImportPage(ctx context.Context, pool *pgxpool.Pool, works []openalex.Work,
+	checkpoint func(context.Context, pgx.Tx, Stats) error) (Stats, error) {
+	stats := Stats{Fetched: len(works)}
+	if len(works) > batchSize || checkpoint == nil {
+		return Stats{}, errors.New("bulk page must contain at most 100 works and a checkpoint")
+	}
+	seen := make(map[string]bool, len(works))
+	prepared := make([]paper, 0, len(works))
+	for _, work := range works {
+		if seen[work.ID] {
+			stats.Skipped++
+			continue
+		}
+		seen[work.ID] = true
+		item, ok := prepare(work)
+		if !ok {
+			stats.Skipped++
+			continue
+		}
+		prepared = append(prepared, item)
+	}
+	if len(prepared) == 0 {
+		err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return checkpoint(ctx, tx, stats) })
+		return stats, err
+	}
+	_, err := importBatchWithHook(ctx, pool, prepared, func(ctx context.Context, tx pgx.Tx, result batchResult) error {
+		stats.Inserted, stats.Updated, stats.CitationsLinked = result.Inserted, result.Updated, result.CitationsLinked
+		return checkpoint(ctx, tx, stats)
+	})
+	if err != nil {
+		return Stats{}, err
+	}
+	return stats, nil
+}
+
 func prepare(work openalex.Work) (paper, bool) {
 	if strings.TrimSpace(work.ID) == "" || strings.TrimSpace(work.Title) == "" || work.CitedByCount < 0 ||
 		(work.PublicationYear != nil && (*work.PublicationYear < 1 || *work.PublicationYear > 2100)) {
@@ -116,6 +154,11 @@ type batchResult struct {
 }
 
 func importBatch(ctx context.Context, pool *pgxpool.Pool, items []paper) (batchResult, error) {
+	return importBatchWithHook(ctx, pool, items, nil)
+}
+
+func importBatchWithHook(ctx context.Context, pool *pgxpool.Pool, items []paper,
+	hook func(context.Context, pgx.Tx, batchResult) error) (batchResult, error) {
 	var result batchResult
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		// Serializes importer processes so the inserted/updated counts reflect
@@ -258,6 +301,9 @@ func importBatch(ctx context.Context, pool *pgxpool.Pool, items []paper) (batchR
 			AND (pending.cited_openalex_id = ANY($1::text[]) OR pending.citing_paper_id = ANY($2::bigint[]))
 			AND pending.citing_paper_id <> target.id`, openalexIDs, paperIDs); err != nil {
 			return err
+		}
+		if hook != nil {
+			return hook(ctx, tx, result)
 		}
 		return nil
 	})

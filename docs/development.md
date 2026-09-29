@@ -145,9 +145,43 @@ Repeat the same import and compare table counts. Citation count may be low in a 
 go test -tags integration ./internal/importer -v
 ```
 
+## Bulk OpenAlex imports
+
+Migration 007 adds `openalex_bulk_imports`. The bulk command reads only the selected fields, fetches 100 works at a time with OpenAlex cursor paging, and commits each page and its next cursor in one transaction. Use one stable job ID and the exact same filter when resuming. Raising `--limit` extends the target without re-fetching earlier pages; a completed source cannot be extended. The target counts *fetched* works, while `inserted_count` and the `papers` count reflect actual rows. Invalid works are skipped, and pre-existing IDs are updated. The filter and counters are stored in the database; the API key stays in `.env` and is sent in a header.
+
+For an initial computer science corpus with abstracts, spanning publication years:
+
+```bash
+make up
+make migrate
+go run ./cmd/import-bulk --job cs-articles-v1 \
+  --filter 'primary_topic.field.id:17,type:article,has_abstract:true' --limit 200000
+# Repeat exactly after an interruption or daily API budget reset.
+# Later, extend the same cursor to 500,000 fetched works:
+go run ./cmd/import-bulk --job cs-articles-v1 \
+  --filter 'primary_topic.field.id:17,type:article,has_abstract:true' --limit 500000
+```
+
+Check `SELECT job_id,target_count,fetched_count,inserted_count,updated_count,skipped_count,finished FROM openalex_bulk_imports;` and `SELECT count(*) FROM papers;` in `make db-shell`. Do not roll back migration 007 during an import: that deletes the checkpoint. The source is OpenAlex's default core corpus, filtered to articles with abstracts whose *primary* field is Computer Science. It is the first cursor slice of a changing catalog, not a random sample or a frozen OpenAlex snapshot. Record the completed database snapshot and year distribution before benchmarking. A second job with a different filter can add rows, but will not continue the first cursor.
+
+The local `cmd/importer` still caps one search at 10,000 works. OpenAlex permits larger cursor queries with up to 100 results per page. As of September 2026, list/filter calls cost about $0.10 per 1,000 requests and a free API key has a $1/day budget; 200,000 and 500,000 fetched works need roughly 2,000 and 5,000 successful page calls, respectively, excluding retries. An exhausted budget stops the job without losing committed pages. See [paging](https://help.openalex.org/api/paging/) and [example costs](https://help.openalex.org/access/example-costs/). The full works snapshot is about 615 GB compressed as of September 2026 and does not fit the 464 GB free on the initial Fedora server. See [snapshot](https://help.openalex.org/access/snapshot/).
+
 ## Paper embeddings
 
 The Python workflow uses uv and Python 3.12 (`.python-version`, `pyproject.toml`, `uv.lock`). The model is [`sentence-transformers/all-MiniLM-L6-v2`](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), revision `1110a243fdf4706b3f48f1d95db1a4f5529b4d41`, Apache-2.0, with 384 output dimensions. Its model card describes truncation after 256 word pieces. The workflow uses CPU, including on machines with an Nvidia GPU. The lockfile selects CPU-only PyTorch wheels for Linux. GPU execution is optional and requires a separately managed CUDA-enabled PyTorch environment; the locked uv commands use CPU. Model weights are downloaded to the user's standard Hugging Face cache on first run and are never stored in the repository. This pretrained model produces embeddings only; this workflow does not train a model or create an ANN index.
+
+For the Fedora 44 research server with an RTX 4060 and a driver reporting CUDA 13.4, use a local CUDA override after installing the locked dependencies. PyTorch publishes 2.13.0 wheels for CUDA 13.2. The override is deliberately local; `make embeddings` and a later `uv sync --locked` restore the CPU wheel. Verify CUDA availability before scanning a large corpus:
+
+```bash
+uv python install 3.12
+make ml-sync
+uv pip install --python .venv/bin/python --reinstall 'torch==2.13.0' \
+  --index-url https://download.pytorch.org/whl/cu132
+uv run --no-sync python -c 'import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), torch.cuda.get_device_name(0))'
+uv run --no-sync python -m ml.embed --limit 0 --batch-size 32 --device cuda
+```
+
+Run the last command only after the bulk import is complete. It can be interrupted and rerun; completed embeddings are skipped. The batch size of 32 is a conservative starting point for the 8 GB card. Query encoding through `ml.query` remains CPU only and takes just one query at a time. For a reproducible benchmark on imported works, generate a fixed set of actual model query vectors and point a copied filtered v2 config at its manifest; the bundled `exact_v1` vectors are synthetic correctness fixtures.
 
 Text version `title-abstract-v1` strips leading/trailing whitespace, collapses internal whitespace to single spaces, and constructs `Title: <title>` followed by `\nAbstract: <abstract>` when the abstract is nonempty. Papers with fewer than three combined words are skipped. Titles alone can be embedded, including papers with no abstract. Inference normalizes vectors to unit length; the model's tokenizer truncates longer text. The SHA-256 of the constructed UTF-8 text, model ID, exact revision, text version, and timestamp are stored beside each vector. Migration 003 also clears a vector whenever an imported title or abstract changes. Changes to citation count or other metadata leave it intact. Bump `TEXT_VERSION` in `ml/embed.py` whenever preprocessing semantics change; the next scan refreshes stale versions. Changing models requires a new migration if the dimension changes.
 

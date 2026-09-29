@@ -38,13 +38,13 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(before) != 6 || before[0].Applied || before[1].Applied || before[2].Applied || before[3].Applied || before[4].Applied || before[5].Applied {
+	if len(before) != 7 || before[0].Applied || before[1].Applied || before[2].Applied || before[3].Applied || before[4].Applied || before[5].Applied || before[6].Applied {
 		t.Fatal("integration test requires a database without applied migrations")
 	}
 	defer func() {
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
-		for range 6 {
+		for range 7 {
 			if _, err := Down(cleanupCtx, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -52,7 +52,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	}()
 
 	changed, err := Up(ctx, conn)
-	if err != nil || len(changed) != 6 {
+	if err != nil || len(changed) != 7 {
 		t.Fatalf("first up: changed=%d err=%v", len(changed), err)
 	}
 	if changed, err := Up(ctx, conn); err != nil || len(changed) != 0 {
@@ -69,6 +69,13 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 		t.Fatalf("HNSW build options: %v", indexOptions)
 	}
 
+	if _, err := Down(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	var importsGone bool
+	if err := conn.QueryRow(ctx, `SELECT to_regclass('public.openalex_bulk_imports') IS NULL`).Scan(&importsGone); err != nil || !importsGone {
+		t.Fatalf("bulk importer rollback: gone=%v err=%v", importsGone, err)
+	}
 	if _, err := Down(ctx, conn); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +120,7 @@ func TestMigrationCycleAndConstraints(t *testing.T) {
 	verifySchema(t, ctx, conn, false)
 
 	changed, err = Up(ctx, conn)
-	if err != nil || len(changed) != 6 {
+	if err != nil || len(changed) != 7 {
 		t.Fatalf("second up: changed=%d err=%v", len(changed), err)
 	}
 	verifySchema(t, ctx, conn, true)
