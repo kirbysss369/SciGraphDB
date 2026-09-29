@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "experiment_id": "filtered-ann-smoke-v2",
+  "dataset_snapshot": "ci-year-strata-3040-v2",
+  "query_set": "experiments/exact_v1/baseline.json",
+  "seed": 42,
+  "k": [10, 20],
+  "target_selectivity_pct": [100, 50, 25, 10, 5, 1],
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "ivfflat_lists": 3,
+  "ivfflat_probes": 1,
+  "ivfflat_max_probes": 3,
+  "hnsw_ef_search": 80,
+  "iterative_scan": "strict_order"
+}

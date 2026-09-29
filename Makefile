@@ -1,4 +1,4 @@
-.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status ml-sync embeddings bench-smoke
+.PHONY: doctor up down logs ps db-shell db-reset fmt test run dev migrate migrate-down migrate-status ml-sync embeddings bench-smoke bench-filtered-smoke
 
 COMPOSE := ./scripts/compose.sh
 
@@ -64,3 +64,6 @@ embeddings: up migrate ml-sync
 
 bench-smoke:
 	@env -u DATABASE_URL go run ./cmd/bench --config experiments/configs/smoke-v1.json
+
+bench-filtered-smoke:
+	@env -u DATABASE_URL go run ./cmd/bench --config experiments/configs/filtered-smoke-v2.json
