@@ -57,7 +57,7 @@ func TestExactTopKBaseline(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 	states, err := migrations.Status(ctx, conn)
-	if err != nil || len(states) != 4 || states[0].Applied || states[1].Applied || states[2].Applied || states[3].Applied {
+	if err != nil || len(states) != 5 || states[0].Applied || states[1].Applied || states[2].Applied || states[3].Applied || states[4].Applied {
 		t.Fatalf("requires an unmigrated disposable database: states=%v err=%v", states, err)
 	}
 	if _, err := migrations.Up(ctx, conn); err != nil {
@@ -66,7 +66,7 @@ func TestExactTopKBaseline(t *testing.T) {
 	defer func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
 		defer stop()
-		for range 4 {
+		for range 5 {
 			if _, err := migrations.Down(cleanup, conn); err != nil {
 				t.Errorf("cleanup migration: %v", err)
 			}
@@ -193,41 +193,52 @@ func TestExactTopKBaseline(t *testing.T) {
 	if _, err := pool.Exec(ctx, `ANALYZE public.papers`); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.CommandContext(ctx, "go", "run", "../../cmd/bench", "--query-dir", root,
-		"--repeats", "1", "--require-index")
+	outDir := t.TempDir()
+	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/bench", "--config",
+		"experiments/configs/hnsw-index-ci-v1.json", "--out-dir", outDir)
+	cmd.Dir = filepath.Join("..", "..")
 	cmd.Env = append(os.Environ(), "DATABASE_URL="+dsn)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("bench smoke with 3000 generated vectors: %v\n%s", err, output)
 	}
+	var summary struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal(output, &summary); err != nil || summary.RunID == "" {
+		t.Fatalf("bench summary: %v; %s", err, output)
+	}
+	reportJSON, err := os.ReadFile(filepath.Join(outDir, summary.RunID+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if path := os.Getenv("BENCH_REPORT_PATH"); path != "" {
-		if err := os.WriteFile(path, output, 0600); err != nil {
+		if err := os.WriteFile(path, reportJSON, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var report struct {
-		Papers          int      `json:"papers"`
-		EligibleVectors int      `json:"eligible_vectors"`
-		EFSearch        int      `json:"ef_search"`
-		BuildOptions    []string `json:"build_options"`
-		Measurements    []struct {
-			Query         string  `json:"query"`
-			K             int     `json:"k"`
-			Recall        float64 `json:"recall"`
-			HNSWIndexUsed bool    `json:"hnsw_index_used"`
-			ExactMedianMS float64 `json:"exact_median_ms"`
-			HNSWMedianMS  float64 `json:"hnsw_median_ms"`
-		} `json:"measurements"`
+		Papers          int      `json:"paper_count"`
+		EligibleVectors int      `json:"eligible_count"`
+		BuildOptions    []string `json:"index_build_options"`
+		Queries         []struct {
+			QueryID   string  `json:"query_id"`
+			K         int     `json:"k"`
+			Method    string  `json:"method"`
+			Recall    float64 `json:"mean_recall_at_k"`
+			IndexUsed bool    `json:"index_used"`
+			P50MS     float64 `json:"p50_ms"`
+		} `json:"queries"`
 	}
-	if err := json.Unmarshal(output, &report); err != nil || report.Papers != 3008 || report.EligibleVectors != 3005 || len(report.Measurements) != 6 {
-		t.Fatalf("bench report: %v; %s", err, output)
+	if err := json.Unmarshal(reportJSON, &report); err != nil || report.Papers != 3008 || report.EligibleVectors != 3005 || len(report.Queries) != 12 {
+		t.Fatalf("bench report: %v; papers=%d eligible=%d queries=%d", err, report.Papers, report.EligibleVectors, len(report.Queries))
 	}
-	for _, row := range report.Measurements {
-		if !row.HNSWIndexUsed || row.Recall < 0 || row.Recall > 1 {
-			t.Fatalf("invalid HNSW measurement: %+v", row)
+	for _, row := range report.Queries {
+		if (row.Method == "hnsw" && !row.IndexUsed) || (row.Method == "exact" && row.IndexUsed) || row.Recall < 0 || row.Recall > 1 {
+			t.Fatalf("invalid measurement: %+v", row)
 		}
-		t.Logf("bench synthetic papers=%d eligible=%d build=%v ef_search=%d query=%s k=%d recall=%.3f exact_ms=%.3f hnsw_ms=%.3f hnsw_index_used=%v",
-			report.Papers, report.EligibleVectors, report.BuildOptions, report.EFSearch,
-			row.Query, row.K, row.Recall, row.ExactMedianMS, row.HNSWMedianMS, row.HNSWIndexUsed)
+		t.Logf("synthetic papers=%d eligible=%d build=%v query=%s k=%d method=%s recall=%.3f p50_ms=%.3f index_used=%v",
+			report.Papers, report.EligibleVectors, report.BuildOptions,
+			row.QueryID, row.K, row.Method, row.Recall, row.P50MS, row.IndexUsed)
 	}
 }

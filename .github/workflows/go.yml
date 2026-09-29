@@ -63,6 +63,8 @@ jobs:
         env:
           BENCH_REPORT_PATH: /tmp/scigraph-hnsw-report.json
         run: go test -tags integration ./internal/search -v
+      - name: Experiment runner persistence and cmd/bench smoke
+        run: go test -tags integration ./cmd/bench -v
       - name: Save HNSW research report
         if: always()
         uses: actions/upload-artifact@v4

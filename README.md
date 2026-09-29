@@ -32,7 +32,7 @@ curl --max-time 5 http://127.0.0.1:8080/readyz
 
 ## Database schema
 
-With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration; rolling back migration 003 deletes vectors. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Migration 003 adds a 384-dimensional paper vector; reversible migration 004 adds a partial HNSW cosine index.
+With PostgreSQL running, use `make migrate` to create the tables and pgvector extension. `make migrate-status` shows applied versions. `make migrate-down` rolls back the latest migration; rolling back migration 003 deletes vectors. The SQL files are under `db/migrations/`; the runner is part of the Go project. See [the migration procedure](docs/development.md#migrations). Migration 003 adds a 384-dimensional paper vector; reversible migration 004 adds a partial HNSW cosine index; migration 005 stores experiment results.
 
 ## OpenAlex probe
 
@@ -48,4 +48,4 @@ Install [uv](https://docs.astral.sh/uv/) separately, then run `make embeddings` 
 
 ## Vector search
 
-After generating embeddings, `POST /api/v1/search/vector` retains genuinely exact cosine search for the pinned MiniLM model and text version. Encode a text query with `uv run --locked python -m ml.query --text 'graph databases' --output /tmp/scigraph-query.json`; the CLI supports both `go run ./cmd/vector-search --vector-file /tmp/scigraph-query.json --limit 10` and `--method hnsw --ef-search 80`. `make bench-smoke` compares both methods on the fixed query vectors and reports Recall@10/20, latency, and JSON plans. See [the search guide](docs/development.md#exact-vector-search) and [fixed ground truth](experiments/exact_v1/README.md).
+After generating embeddings, `POST /api/v1/search/vector` retains genuinely exact cosine search for the pinned MiniLM model and text version. Encode a text query with `uv run --locked python -m ml.query --text 'graph databases' --output /tmp/scigraph-query.json`; the CLI supports both `go run ./cmd/vector-search --vector-file /tmp/scigraph-query.json --limit 10` and `--method hnsw --ef-search 80`. `make bench-smoke` runs a versioned fixed-query experiment and stores Recall@10/20, repeated latency samples, percentile summaries, and sanitized JSON plans. See [the search guide](docs/development.md#exact-vector-search) and [fixed ground truth](experiments/exact_v1/README.md).

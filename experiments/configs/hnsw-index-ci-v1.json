@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "experiment_id": "hnsw-index-ci-v1",
+  "dataset_snapshot": "ci-synthetic-3005-v1",
+  "query_set": "experiments/exact_v1/baseline.json",
+  "seed": 42,
+  "k": [10, 20],
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "hnsw_ef_search": 80,
+  "require_hnsw_index": true
+}

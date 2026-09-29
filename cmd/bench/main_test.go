@@ -8,9 +8,9 @@ import (
 )
 
 func TestFixedQueryAndPlanParsing(t *testing.T) {
-	vector, err := loadQuery("../../experiments/exact_v1/query-positive-x.json")
-	if err != nil || len(vector) != search.Dimension {
-		t.Fatalf("fixed vector: length=%d err=%v", len(vector), err)
+	_, _, queries, err := loadQueries("../../experiments/exact_v1/baseline.json")
+	if err != nil || len(queries) != 3 || len(queries[0].Vector) != search.Dimension {
+		t.Fatalf("fixed queries: count=%d err=%v", len(queries), err)
 	}
 	plan := json.RawMessage(`[{"Plan":{"Node Type":"Limit","Plans":[{"Node Type":"Index Scan","Index Name":"papers_embedding_hnsw_cosine_idx"}]}}]`)
 	if !containsIndex(plan, search.HNSWIndexName) || containsIndex(plan, "other_index") {

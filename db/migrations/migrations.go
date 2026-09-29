@@ -31,6 +31,7 @@ var ordered = []Migration{
 	{2, "pending_citations", "002_pending_citations.up.sql", "002_pending_citations.down.sql"},
 	{3, "paper_embeddings", "003_paper_embeddings.up.sql", "003_paper_embeddings.down.sql"},
 	{4, "paper_hnsw", "004_paper_hnsw.up.sql", "004_paper_hnsw.down.sql"},
+	{5, "bench_runs", "005_bench_runs.up.sql", "005_bench_runs.down.sql"},
 }
 
 const versionTable = `CREATE TABLE IF NOT EXISTS public.schema_migrations (
