@@ -230,7 +230,7 @@ func executeFiltered(ctx context.Context, pool *pgxpool.Pool, cfg filteredConfig
 	}
 	r.Skipped = skipped
 	opts := search.FilterOptions{EFSearch: cfg.HNSWEFSearch, Probes: cfg.IVFProbes,
-		MaxProbes: cfg.IVFMaxProbes, IterativeScan: cfg.IterativeScan}
+		MaxProbes: cfg.IVFMaxProbes, HNSWIterative: cfg.HNSWIterativeScan, IVFIterative: cfg.IVFIterativeScan}
 	ground := map[string][]search.Result{}
 	for _, f := range filters {
 		for _, q := range queries {
@@ -251,16 +251,16 @@ func executeFiltered(ctx context.Context, pool *pgxpool.Pool, cfg filteredConfig
 		for _, q := range queries {
 			for _, k := range cfg.K {
 				for _, method := range []string{"exact", "hnsw", "ivfflat"} {
-					params := map[string]any{"iterative_scan": cfg.IterativeScan}
+					params := map[string]any{}
 					switch method {
-					case "exact":
-						params = map[string]any{}
 					case "hnsw":
 						params["ef_search"] = cfg.HNSWEFSearch
+						params["iterative_scan"] = cfg.HNSWIterativeScan
 					case "ivfflat":
 						params["lists"] = cfg.IVFLists
 						params["probes"] = cfg.IVFProbes
 						params["max_probes"] = cfg.IVFMaxProbes
+						params["iterative_scan"] = cfg.IVFIterativeScan
 					}
 					encoded, _ := json.Marshal(params)
 					r.Queries = append(r.Queries, filteredQuery{Filter: f, QueryID: q.ID, QuerySHA256: q.SHA256, K: k, Method: method, Parameters: encoded})

@@ -12,5 +12,6 @@
   "ivfflat_probes": 1,
   "ivfflat_max_probes": 3,
   "hnsw_ef_search": 80,
-  "iterative_scan": "strict_order"
+  "hnsw_iterative_scan": "strict_order",
+  "ivfflat_iterative_scan": "relaxed_order"
 }

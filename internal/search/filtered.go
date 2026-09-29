@@ -82,7 +82,8 @@ type FilterOptions struct {
 	EFSearch      int
 	Probes        int
 	MaxProbes     int
-	IterativeScan string // off, strict_order, relaxed_order
+	HNSWIterative string // off, strict_order, relaxed_order
+	IVFIterative  string // off, relaxed_order in pgvector 0.8.6
 }
 
 func (o FilterOptions) Validate() error {
@@ -92,8 +93,11 @@ func (o FilterOptions) Validate() error {
 	if o.Probes < 1 || o.MaxProbes < o.Probes || o.MaxProbes > 1000 {
 		return errors.New("invalid IVFFlat probes or max_probes")
 	}
-	if o.IterativeScan != "off" && o.IterativeScan != "strict_order" && o.IterativeScan != "relaxed_order" {
-		return errors.New("invalid iterative scan mode")
+	if o.HNSWIterative != "off" && o.HNSWIterative != "strict_order" && o.HNSWIterative != "relaxed_order" {
+		return errors.New("invalid HNSW iterative scan mode")
+	}
+	if o.IVFIterative != "off" && o.IVFIterative != "relaxed_order" {
+		return errors.New("IVFFlat iterative scan supports only off or relaxed_order")
 	}
 	return nil
 }
@@ -165,11 +169,11 @@ func setFilterSettings(ctx context.Context, tx pgx.Tx, method string, opts Filte
 	switch method {
 	case "hnsw":
 		values["hnsw.ef_search"] = strconv.Itoa(opts.EFSearch)
-		values["hnsw.iterative_scan"] = opts.IterativeScan
+		values["hnsw.iterative_scan"] = opts.HNSWIterative
 	case "ivfflat":
 		values["ivfflat.probes"] = strconv.Itoa(opts.Probes)
 		values["ivfflat.max_probes"] = strconv.Itoa(opts.MaxProbes)
-		values["ivfflat.iterative_scan"] = opts.IterativeScan
+		values["ivfflat.iterative_scan"] = opts.IVFIterative
 	default:
 		return errors.New("unsupported ANN method")
 	}
@@ -203,17 +207,21 @@ func FilteredPlan(ctx context.Context, pool *pgxpool.Pool, method string, vector
 		}
 	}
 	const settingsSQL = `SELECT current_setting('work_mem'), current_setting('enable_seqscan'),
+		current_setting('enable_indexscan'), current_setting('enable_bitmapscan'),
 		current_setting('random_page_cost'), current_setting('effective_cache_size'),
-		current_setting('plan_cache_mode'), current_setting('hnsw.ef_search',true),
+		current_setting('plan_cache_mode'), current_setting('max_parallel_workers_per_gather'),
+		current_setting('jit'), current_setting('hnsw.ef_search',true),
 		current_setting('hnsw.iterative_scan',true), current_setting('hnsw.max_scan_tuples',true),
 		current_setting('ivfflat.probes',true), current_setting('ivfflat.iterative_scan',true),
 		current_setting('ivfflat.max_probes',true)`
-	var vals [11]*string
+	var vals [15]*string
 	if err := tx.QueryRow(ctx, settingsSQL).Scan(&vals[0], &vals[1], &vals[2], &vals[3], &vals[4],
-		&vals[5], &vals[6], &vals[7], &vals[8], &vals[9], &vals[10]); err != nil {
+		&vals[5], &vals[6], &vals[7], &vals[8], &vals[9], &vals[10], &vals[11],
+		&vals[12], &vals[13], &vals[14]); err != nil {
 		return nil, nil, err
 	}
-	keys := []string{"work_mem", "enable_seqscan", "random_page_cost", "effective_cache_size", "plan_cache_mode",
+	keys := []string{"work_mem", "enable_seqscan", "enable_indexscan", "enable_bitmapscan",
+		"random_page_cost", "effective_cache_size", "plan_cache_mode", "max_parallel_workers_per_gather", "jit",
 		"hnsw.ef_search", "hnsw.iterative_scan", "hnsw.max_scan_tuples", "ivfflat.probes", "ivfflat.iterative_scan", "ivfflat.max_probes"}
 	settings := make(map[string]*string, len(keys)+1)
 	for i, key := range keys {

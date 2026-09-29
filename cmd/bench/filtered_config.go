@@ -24,7 +24,8 @@ type filteredConfig struct {
 	IVFProbes          int    `json:"ivfflat_probes"`
 	IVFMaxProbes       int    `json:"ivfflat_max_probes"`
 	HNSWEFSearch       int    `json:"hnsw_ef_search"`
-	IterativeScan      string `json:"iterative_scan"`
+	HNSWIterativeScan  string `json:"hnsw_iterative_scan"`
+	IVFIterativeScan   string `json:"ivfflat_iterative_scan"`
 }
 
 func readFilteredConfig(path string) (filteredConfig, string, error) {
@@ -60,7 +61,7 @@ func (c filteredConfig) validate() error {
 		return fmt.Errorf("invalid IVFFlat lists/probes/max_probes; probes must be below lists")
 	}
 	return (search.FilterOptions{EFSearch: c.HNSWEFSearch, Probes: c.IVFProbes,
-		MaxProbes: c.IVFMaxProbes, IterativeScan: c.IterativeScan}).Validate()
+		MaxProbes: c.IVFMaxProbes, HNSWIterative: c.HNSWIterativeScan, IVFIterative: c.IVFIterativeScan}).Validate()
 }
 
 func configVersion(path string) (int, error) {

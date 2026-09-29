@@ -26,8 +26,13 @@ func TestFilteredQueryShapes(t *testing.T) {
 		t.Fatal("unknown search method accepted")
 	}
 	for _, mode := range []string{"off", "strict_order", "relaxed_order"} {
-		if err := (FilterOptions{EFSearch: 80, Probes: 1, MaxProbes: 3, IterativeScan: mode}).Validate(); err != nil {
+		if err := (FilterOptions{EFSearch: 80, Probes: 1, MaxProbes: 3,
+			HNSWIterative: mode, IVFIterative: "relaxed_order"}).Validate(); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := (FilterOptions{EFSearch: 80, Probes: 1, MaxProbes: 3,
+		HNSWIterative: "strict_order", IVFIterative: "strict_order"}).Validate(); err == nil {
+		t.Fatal("pgvector 0.8.6 IVFFlat accepted unsupported strict_order")
 	}
 }

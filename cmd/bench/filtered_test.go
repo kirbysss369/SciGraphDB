@@ -32,7 +32,8 @@ func TestFilteredConfigValidation(t *testing.T) {
 	cfg := filteredConfig{SchemaVersion: 2, ExperimentID: "filtered-test", DatasetSnapshot: "fixture-v2",
 		QuerySet: "experiments/exact_v1/baseline.json", Seed: 42, K: []int{10, 20},
 		TargetPercentages: []int{100, 50, 25, 10, 5, 1}, WarmupIterations: 1, MeasuredIterations: 3,
-		IVFLists: 3, IVFProbes: 1, IVFMaxProbes: 3, HNSWEFSearch: 80, IterativeScan: "strict_order"}
+		IVFLists: 3, IVFProbes: 1, IVFMaxProbes: 3, HNSWEFSearch: 80,
+		HNSWIterativeScan: "strict_order", IVFIterativeScan: "relaxed_order"}
 	if err := cfg.validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +41,8 @@ func TestFilteredConfigValidation(t *testing.T) {
 		func(c *filteredConfig) { c.IVFProbes = 3 },
 		func(c *filteredConfig) { c.IVFLists = 1 },
 		func(c *filteredConfig) { c.IVFMaxProbes = 0 },
-		func(c *filteredConfig) { c.IterativeScan = "anything" },
+		func(c *filteredConfig) { c.HNSWIterativeScan = "anything" },
+		func(c *filteredConfig) { c.IVFIterativeScan = "strict_order" },
 		func(c *filteredConfig) { c.K = []int{10} },
 		func(c *filteredConfig) { c.TargetPercentages = []int{100, 50} },
 	}
