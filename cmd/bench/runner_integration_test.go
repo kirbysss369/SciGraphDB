@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -91,15 +92,41 @@ func TestRunnerPersistenceSmoke(t *testing.T) {
 	if result.QueryCount != 12 || result.RunID == "" {
 		t.Fatalf("summary: %+v", result)
 	}
-	var queries, samples, exactANN, rawVectors int
-	if err := conn.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE method='exact' AND index_used),
-		count(*) FILTER (WHERE plan_json::text LIKE '%0.9915619%') FROM public.bench_queries WHERE run_id=$1`, result.RunID).
-		Scan(&queries, &exactANN, &rawVectors); err != nil {
+	var queries, samples, exactANN int
+	if err := conn.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE method='exact' AND index_used)
+		FROM public.bench_queries WHERE run_id=$1`, result.RunID).
+		Scan(&queries, &exactANN); err != nil {
 		t.Fatal(err)
 	}
-	if queries != 12 || exactANN != 0 || rawVectors != 0 {
-		t.Fatalf("queries=%d exactANN=%d rawVectors=%d", queries, exactANN, rawVectors)
+	if queries != 12 || exactANN != 0 {
+		t.Fatalf("queries=%d exactANN=%d", queries, exactANN)
 	}
+	plans, err := conn.Query(ctx, `SELECT plan_json FROM public.bench_queries WHERE run_id=$1`, result.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for plans.Next() {
+		var raw json.RawMessage
+		if err := plans.Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := json.Marshal(decoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		redacted, err := redactPlan(raw)
+		if err != nil || !bytes.Equal(canonical, redacted) {
+			t.Fatal("persisted plan contains a raw query vector")
+		}
+	}
+	if err := plans.Err(); err != nil {
+		t.Fatal(err)
+	}
+	plans.Close()
 	if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.bench_samples WHERE run_id=$1`, result.RunID).Scan(&samples); err != nil {
 		t.Fatal(err)
 	}
